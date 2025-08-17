@@ -7,8 +7,8 @@ CC = gcc-15
 MPICC = mpicc
 
 # Compilation flags
-CFLAGS = -O1 -Wall -Wextra -fopenmp -Iinclude
-# CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude
+# CFLAGS = -O1 -Wall -Wextra -fopenmp -Iinclude
+CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude
 
 # Enable logging with make LOG=1
 ifeq ($(LOG),1)
@@ -16,8 +16,8 @@ ifeq ($(LOG),1)
 endif
 
 # Source files
-PARALLEL_SRC = src/stencil_template_parallel.c
-SERIAL_SRC   = src/stencil_template_serial.c
+PARALLEL_SRC = src/stencil_parallel.c
+SERIAL_SRC   = src/stencil_serial.c
 
 # Default mode: serial
 MODE ?= serial
@@ -25,10 +25,10 @@ MODE ?= serial
 # Select source and output basename based on mode
 ifeq ($(MODE),parallel)
 	SRC = $(PARALLEL_SRC)
-	BASENAME = stencil_template_parallel
+	BASENAME = stencil_parallel
 else ifeq ($(MODE),serial)
 	SRC = $(SERIAL_SRC)
-	BASENAME = stencil_template_serial
+	BASENAME = stencil_serial
 else
 	$(error Invalid MODE specified. Use MODE=parallel or MODE=serial)
 endif
@@ -42,6 +42,6 @@ $(BASENAME):
 
 # Clean built executables
 clean:
-	rm -f stencil_template_parallel stencil_template_serial
+	rm -f stencil_parallel stencil_serial
 
 .PHONY: all clean

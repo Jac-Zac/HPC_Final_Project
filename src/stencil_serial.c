@@ -5,7 +5,7 @@
  *
  */
 
-#include "stencil_template_serial.h"
+#include "stencil_serial.h"
 
 int dump(const double *, const uint[2], const char *, double *, double *);
 
@@ -58,7 +58,8 @@ int main(int argc, char **argv) {
 
     double t_comp_start = CPU_TIME;
     /* update grid points */
-    update_plane(periodic, S, planes[current], planes[!current]);
+    // update_plane(periodic, S, planes[current], planes[!current]);
+    update_plane_fast(periodic, S, planes[current], planes[!current]);
     double t_comp_end = CPU_TIME;
     comp_times[iter] = t_comp_end - t_comp_start;
 
@@ -89,7 +90,12 @@ int main(int argc, char **argv) {
 
   /* get final heat in the system */
   double system_heat;
+
+  double t_tot_energy_start = CPU_TIME;
   get_total_energy(S, planes[current], &system_heat);
+  double t_tot_energy_end = CPU_TIME;
+  printf("Total energy computaton time: %f \n",
+         t_tot_energy_end - t_tot_energy_start);
 
   printf("injected energy is %g, system energy is %g\n", injected_heat,
          system_heat);
@@ -97,7 +103,7 @@ int main(int argc, char **argv) {
 #if ENABLE_LOG
   FILE *log = fopen("timings.log", "w");
   if (log != NULL) {
-    fprintf(log, "# iter comp_time energy_time\n");
+    fprintf(log, "iter comp_time energy_time\n");
     for (int i = 0; i < Niterations; i++) {
       fprintf(log, "%d %f %f\n", i, comp_times[i], energy_times[i]);
     }

@@ -88,6 +88,59 @@ inline int inject_energy(const int periodic, const int Nsources,
   return 0;
 }
 
+// HACK: This is actually faster
+inline int update_plane_fast(const int periodic, const uint size[2],
+                             const double *old_points, double *new_points) {
+
+  const int fxsize = size[_x_] + 2;
+  const int fysize = size[_y_] + 2;
+  const int xsize = size[_x_];
+  const int ysize = size[_y_];
+
+  const double alpha = 0.6;
+  const double beta = (1.0 - alpha) * 0.25; // (1-alpha)/4
+
+#define IDX(i, j) ((j) * fxsize + (i))
+
+  // Parallelize outer loop over rows: each thread works on full rows (avoids
+  // false sharing)
+#pragma omp parallel for schedule(static)
+  for (int j = 1; j <= ysize; j++) {
+    const double *row_above = old_points + (j - 1) * fxsize;
+    const double *row_center = old_points + j * fxsize;
+    const double *row_below = old_points + (j + 1) * fxsize;
+    double *row_new = new_points + j * fxsize;
+
+    for (int i = 1; i <= xsize; i++) {
+      // Five-point stencil
+      const double center = row_center[i];
+      const double left = row_center[i - 1];
+      const double right = row_center[i + 1];
+      const double up = row_above[i];
+      const double down = row_below[i];
+
+      row_new[i] = center * alpha + beta * (left + right + up + down);
+    }
+  }
+
+  // Periodic boundary propagation
+  if (periodic) {
+    // Top & bottom wrap
+    for (int i = 1; i <= xsize; i++) {
+      new_points[i] = new_points[IDX(i, ysize)];
+      new_points[IDX(i, ysize + 1)] = new_points[i];
+    }
+    // Left & right wrap
+    for (int j = 1; j <= ysize; j++) {
+      new_points[IDX(0, j)] = new_points[IDX(xsize, j)];
+      new_points[IDX(xsize + 1, j)] = new_points[IDX(1, j)];
+    }
+  }
+
+#undef IDX
+  return 0;
+}
+
 /*
  * calculate the new energy values
  * the old plane contains the current data, the new plane
@@ -105,34 +158,58 @@ inline int update_plane(const int periodic, const uint size[2],
   const int xsize = size[_x_];
   const int ysize = size[_y_];
 
-#define IDX(i, j) ((j) * fxsize + (i))
+  // Pre-compute constants to avoid repeated calculations
+  const double alpha = 0.6;
+  const double beta = (1.0 - alpha) * 0.25; // (1-alpha)/4
 
-  // HINT: you may attempt to
-  //       (i)  manually unroll the loop
-  //       (ii) ask the compiler to do it
-  // for instance
-  // #pragma GCC unroll 4
-  //
-  // HINT: in any case, this loop is a good candidate
-  //       for openmp parallelization
-  for (uint j = 1; j <= ysize; j++)
-    for (uint i = 1; i <= xsize; i++) {
+#define IDX(i, j) ((j) * fxsize + (i))
+#define OLD_VERSION 0
+
+// HINT: you may attempt to
+//       (i)  manually unroll the loop
+//       (ii) ask the compiler to do it
+// for instance
+// #pragma GCC unroll 4
+// NOTE: loop unrolling doesn't seem to increase performance
+//
+// HINT: in any case, this loop is a good candidate
+//       for openmp parallelization
+//
+// #pragma omp parallel for collapse(2)
+// #pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
+  for (int j = 1; j <= ysize; j++) {
+    for (int i = 1; i <= xsize; i++) {
+#if OLD_VERSION == 1
       //
       // five-points stencil formula
       //
 
       // simpler stencil with no explicit diffusivity
       // always conserve the smoothed quantity
-      // alpha here mimics how much "easily" the heat
-      // travels
-
-      double alpha = 0.6;
+      // alpha here mimics how much "easily" the heat travels
       double result = old_points[IDX(i, j)] * alpha;
       double sum_i = (old_points[IDX(i - 1, j)] + old_points[IDX(i + 1, j)]) /
                      4.0 * (1 - alpha);
       double sum_j = (old_points[IDX(i, j - 1)] + old_points[IDX(i, j + 1)]) /
                      4.0 * (1 - alpha);
       result += (sum_i + sum_j);
+      new_points[IDX(i, j)] = result;
+#else
+      // Cache array accesses and use pointer arithmetic for better performance
+      // NOTE: Computation of the index is not efficient perhaps but I guess the
+      // reason because collapse is not faster is indeed that the compiler
+      // automatically does hoist j * fxsize outside the i loop
+      const double center = old_points[IDX(i, j)];
+      const double left = old_points[IDX(i - 1, j)];
+      const double right = old_points[IDX(i + 1, j)];
+      const double up = old_points[IDX(i, j - 1)];
+      const double down = old_points[IDX(i, j + 1)];
+
+      // Optimized computation - fewer operations
+      new_points[IDX(i, j)] =
+          center * alpha + beta * (left + right + up + down);
+#endif
 
       // NOTE: Professor left this comment I'm not really sure what I have to do
       // with it if it should be implemented or anything
@@ -162,9 +239,8 @@ inline int update_plane(const int periodic, const uint size[2],
                                                    // not so fast that the(i, j)
   goes below zero energy alpha /= 2; } while (!done);
         */
-
-      new_points[IDX(i, j)] = result;
     }
+  }
 
   /*
    * propagate boundaries if they are periodic
@@ -172,11 +248,11 @@ inline int update_plane(const int periodic, const uint size[2],
    * NOTE: when is that needed in distributed memory, if any?
    */
   if (periodic) {
-    for (uint i = 1; i <= xsize; i++) {
+    for (int i = 1; i <= xsize; i++) {
       new_points[i] = new_points[IDX(i, ysize)];
       new_points[IDX(i, ysize + 1)] = new_points[i];
     }
-    for (uint j = 1; j <= ysize; j++) {
+    for (int j = 1; j <= ysize; j++) {
       new_points[IDX(0, j)] = new_points[IDX(xsize, j)];
       new_points[IDX(xsize + 1, j)] = new_points[IDX(1, j)];
     }
@@ -188,7 +264,7 @@ inline int update_plane(const int periodic, const uint size[2],
 }
 
 /*
- * NOTE: this routine a good candiadate for openmp
+ * NOTE: this routine a good candidate for openmp
  *       parallelization
  */
 inline int get_total_energy(const uint size[2], const double *plane,
@@ -209,7 +285,9 @@ inline int get_total_energy(const uint size[2], const double *plane,
   //       (i)  manually unroll the loop
   //       (ii) ask the compiler to do it
   // for instance
-  // #pragma GCC unroll 4
+  // #pragma omp parallel for
+  //
+#pragma omp parallel for reduction(+ : totenergy)
   for (uint j = 1; j <= size[_y_]; j++)
     for (uint i = 1; i <= size[_x_]; i++)
       totenergy += plane[IDX(i, j)];
