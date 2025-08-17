@@ -24,6 +24,10 @@
 **/*.out
 **/*.o
 
+# Executables
+stencil_serial
+stencil_parallel
+
 # Media and binary files
 **/*.pgm
 **/*.pdf
