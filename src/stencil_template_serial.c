@@ -137,11 +137,11 @@ int initialize(
     int **Sources,
     double *energy_per_source, // how much heat per source
     double **planes, int *output_energy_at_steps, int *injection_frequency) {
+
   int ret;
 
   // ··································································
   // set default values
-
   S[_x_] = 1000;
   S[_y_] = 1000;
   *periodic = 0;
@@ -154,11 +154,11 @@ int initialize(
   double freq = 0;
 
   // ··································································
-  // process the commadn line
-  //
+  // process the command line
+  int show_help = 0;
   while (1) {
     int opt;
-    while ((opt = getopt(argc, argv, ":x:y:e:E:f:n:p:o:")) != -1) {
+    while ((opt = getopt(argc, argv, ":x:y:e:E:f:n:p:o:h")) != -1) {
       switch (opt) {
       case 'x':
         S[_x_] = (uint)atoi(optarg);
@@ -193,25 +193,16 @@ int initialize(
         break;
 
       case 'h':
-        printf("valid options are ( values btw [] are the default values ):\n"
-               "-x    x size of the plate [1000]\n"
-               "-y    y size of the plate [1000]\n"
-               "-e    how many energy sources on the plate [1]\n"
-               "-E    how many energy sources on the plate [1.0]\n"
-               "-f    the frequency of energy injection [0.0]\n"
-               "-n    how many iterations [100]\n"
-               "-p    whether periodic boundaries applies  [0 = false]\n"
-               "-o    whether to print the energy budgest at every step [0 = "
-               "false]\n");
+        show_help = 1;
         break;
 
       case ':':
         printf("option -%c requires an argument\n", optopt);
-        break;
+        return 1;
 
       case '?':
-        printf(" -------- help unavailable ----------\n");
-        break;
+        printf("Unknown option -%c\n", optopt);
+        return 1;
       }
     }
 
@@ -219,6 +210,21 @@ int initialize(
       break;
   }
 
+  if (show_help) {
+    printf("Valid options are (values in [] are the defaults):\n"
+           "-x    x size of the plate [1000]\n"
+           "-y    y size of the plate [1000]\n"
+           "-e    number of energy sources on the plate [1]\n"
+           "-E    energy per source [1.0]\n"
+           "-f    frequency of energy injection [0.0]\n"
+           "-n    number of iterations [99]\n"
+           "-p    periodic boundaries [0 = false]\n"
+           "-o    output energy at every step [0 = false]\n"
+           "-h    display this help message\n");
+    exit(0); // <--- exit immediately
+  }
+
+  // handle injection frequency
   if (freq == 0)
     *injection_frequency = 1;
   else {
@@ -226,30 +232,21 @@ int initialize(
     *injection_frequency = freq * *Niterations;
   }
 
-  // ··································································
-  /*
-   * NOTE: Teacher
-   * here we should check for all the parms being meaningful
-   *
-   */
-
-  // TODO: I guess this is what is meant to be added when the teachers askes the
-  // above things Size of the plane has to be positive
-  if (S[_x_] <= 0 || S[_y_] <= 0) {
+  // validate parameters
+  if (S[_x_] <= 0 || S[_y_] <= 0)
     return 1;
-  }
   if (*Nsources < 0)
     return 1;
 
-  // ··································································
-  // allocae the needed memory
-  //
+  // allocate memory
   ret = memory_allocate(S, planes);
+  if (ret != 0)
+    return ret;
 
-  // ··································································
-  // allocae the heat sources
-  //
+  // initialize sources
   ret = initialize_sources(S, *Nsources, Sources);
+  if (ret != 0)
+    return ret;
 
   return 0;
 }
@@ -288,7 +285,6 @@ int memory_allocate(const uint size[2], double **planes_ptr)
 
 /*
  * randomly spread heat sources
- *
  */
 int initialize_sources(uint size[2], int Nsources, int **Sources) {
   *Sources = (int *)malloc(Nsources * 2 * sizeof(uint));
