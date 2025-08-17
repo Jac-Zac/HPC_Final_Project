@@ -40,6 +40,10 @@ int main(int argc, char **argv) {
     inject_energy(periodic, Nsources, Sources, energy_per_source, S,
                   planes[current]);
 
+  // allocate timing arrays
+  double *comp_times = malloc(Niterations * sizeof(double));
+  double *energy_times = malloc(Niterations * sizeof(double));
+
   // Start the timer for the main loop
   double t_start, t_end;
   t_start = CPU_TIME;
@@ -56,12 +60,15 @@ int main(int argc, char **argv) {
     /* update grid points */
     update_plane(periodic, S, planes[current], planes[!current]);
     double t_comp_end = CPU_TIME;
-    printf("Iteration %d computation time: %f\n", iter,
-           t_comp_end - t_comp_start);
+    comp_times[iter] = t_comp_end - t_comp_start;
 
     if (output_energy_at_steps) {
       double system_heat;
+
+      double t_tot_energy_start = CPU_TIME;
       get_total_energy(S, planes[!current], &system_heat);
+      double t_tot_energy_end = CPU_TIME;
+      energy_times[iter] = t_tot_energy_end - t_tot_energy_start;
 
       printf("step %d :: injected energy is %g, updated system energy is %g\n",
              iter, injected_heat, system_heat);
@@ -69,6 +76,8 @@ int main(int argc, char **argv) {
       char filename[100];
       sprintf(filename, "plane_%05d.bin", iter);
       dump(planes[!current], S, filename, NULL, NULL);
+    } else {
+      energy_times[iter] = 0.0;
     }
 
     /* swap planes for the new iteration */
@@ -84,6 +93,21 @@ int main(int argc, char **argv) {
 
   printf("injected energy is %g, system energy is %g\n", injected_heat,
          system_heat);
+
+#if ENABLE_LOG
+  FILE *log = fopen("timings.log", "w");
+  if (log != NULL) {
+    fprintf(log, "# iter comp_time energy_time\n");
+    for (int i = 0; i < Niterations; i++) {
+      fprintf(log, "%d %f %f\n", i, comp_times[i], energy_times[i]);
+    }
+    fclose(log);
+    printf("Timing data written to timings.log\n");
+  }
+#endif
+
+  free(comp_times);
+  free(energy_times);
 
   memory_release(planes[OLD], Sources);
   return 0;
@@ -204,11 +228,18 @@ int initialize(
 
   // ··································································
   /*
+   * NOTE: Teacher
    * here we should check for all the parms being meaningful
    *
    */
 
-  // ...
+  // TODO: I guess this is what is meant to be added when the teachers askes the
+  // above things Size of the plane has to be positive
+  if (S[_x_] <= 0 || S[_y_] <= 0) {
+    return 1;
+  }
+  if (*Nsources < 0)
+    return 1;
 
   // ··································································
   // allocae the needed memory
@@ -235,15 +266,20 @@ int memory_allocate(const uint size[2], double **planes_ptr)
  *
  */
 {
-  if (planes_ptr == NULL) {
+  if (planes_ptr == NULL)
     // an invalid pointer has been passed
     // manage the situation
-    ;
-  }
+    // Something like return the error code 1 ?
+    return 1;
 
   unsigned int bytes = (size[_x_] + 2) * (size[_y_] + 2);
 
   planes_ptr[OLD] = (double *)malloc(2 * bytes * sizeof(double));
+
+  // Check if malloc fails
+  if (planes_ptr[OLD] == NULL)
+    return 2;
+
   memset(planes_ptr[OLD], 0, 2 * bytes * sizeof(double));
   planes_ptr[NEW] = planes_ptr[OLD] + bytes;
 

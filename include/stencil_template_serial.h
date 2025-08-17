@@ -12,7 +12,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#if defined(_OPENMP)
 #define CPU_TIME                                                               \
   ({                                                                           \
     struct timespec ts;                                                        \
@@ -26,16 +25,6 @@
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &myts),                             \
         (double)myts.tv_sec + (double)myts.tv_nsec * 1e-9;                     \
   })
-#else
-
-#define CPU_TIME                                                               \
-  ({                                                                           \
-    struct timespec ts;                                                        \
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts),                              \
-        (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;                         \
-  })
-
-#endif
 
 #define NORTH 0
 #define SOUTH 1
@@ -133,7 +122,7 @@ inline int update_plane(const int periodic, const uint size[2],
       //
 
       // simpler stencil with no explicit diffusivity
-      // always conserve the smoohed quantity
+      // always conserve the smoothed quantity
       // alpha here mimics how much "easily" the heat
       // travels
 
@@ -145,15 +134,16 @@ inline int update_plane(const int periodic, const uint size[2],
                      4.0 * (1 - alpha);
       result += (sum_i + sum_j);
 
+      // NOTE: Professor left this comment I'm not really sure what I have to do
+      // with it if it should be implemented or anything
       /*
-
-      // implentation from the derivation of
+      // implantation from the derivation of
       // 3-points 2nd order derivatives
       // however, that should depends on an adaptive
       // time-stepping so that given a diffusivity
       // coefficient the amount of energy diffused is
       // "small"
-      // however the imlic methods are not stable
+      // however the implicit methods are not stable
 
   #define alpha_guess 0.5 // mimic the heat diffusivity
 
@@ -169,11 +159,8 @@ inline int update_plane(const int periodic, const uint size[2],
           result = sum + (sum_i + sum_j);
           double ratio = fabs((result - sum) / (sum != 0 ? sum : 1.0));
           done = ((ratio < 2.0) && (result >= 0)); // not too fast diffusion and
-                                                   // not so fast that
-          the(i, j)
-              // goes below zero
-              energy alpha /= 2;
-        } while (!done);
+                                                   // not so fast that the(i, j)
+  goes below zero energy alpha /= 2; } while (!done);
         */
 
       new_points[IDX(i, j)] = result;

@@ -7,11 +7,17 @@ CC = gcc-15
 MPICC = mpicc
 
 # Compilation flags
-CFLAGS = -O1 -Wall -Wextra -march=native -fopenmp -Iinclude
+# CFLAGS = -O1 -Wall -Wextra -march=native -fopenmp -Iinclude
+CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude
+
+# Enable logging with make LOG=1
+ifeq ($(LOG),1)
+  CFLAGS += -DENABLE_LOG
+endif
 
 # Source files
 PARALLEL_SRC = src/stencil_template_parallel.c
-SERIAL_SRC = src/stencil_template_serial.c
+SERIAL_SRC   = src/stencil_template_serial.c
 
 # Default mode: serial
 MODE ?= serial

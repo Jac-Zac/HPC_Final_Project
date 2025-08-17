@@ -17,6 +17,7 @@
 **/*.zip
 **/*.npz
 **/*.pth
+**/*.log
 **/TIME.*
 
 # Compiled output
