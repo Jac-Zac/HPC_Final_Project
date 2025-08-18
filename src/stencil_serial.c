@@ -50,8 +50,8 @@ int main(int argc, char **argv) {
 
     double t_comp_start = CPU_TIME;
     /* update grid points */
-    update_plane(periodic, S, planes[current], planes[!current]);
-    // update_plane_fast(periodic, S, planes[current], planes[!current]);
+    // update_plane(periodic, S, planes[current], planes[!current]);
+    update_plane_fast(periodic, S, planes[current], planes[!current]);
     double t_comp_end = CPU_TIME;
     comp_times[iter] = t_comp_end - t_comp_start;
 
@@ -228,6 +228,7 @@ int initialize(
 
   // allocate memory
   ret = memory_allocate(S, planes);
+
   if (ret != 0)
     return ret;
 
@@ -247,38 +248,7 @@ int initialize(
   return 0;
 }
 
-#ifdef FAST
-
-// replace your memory_allocate() with:
-int memory_allocate(const uint size[2], double **planes_ptr) {
-  if (!planes_ptr)
-    return 1;
-
-  const size_t nx = size[_x_] + 2;
-  const size_t ny = size[_y_] + 2;
-  const size_t cells = nx * ny;
-
-  // allocate OLD and NEW in one big aligned block
-  const size_t bytes = 2 * cells * sizeof(double);
-  void *base = NULL;
-  if (posix_memalign(&base, 64, bytes) != 0 || !base)
-    return 2;
-
-  planes_ptr[OLD] = (double *)base;
-  planes_ptr[NEW] = planes_ptr[OLD] + cells;
-
-// NUMA first-touch: parallel zero-init per row (avoids remote pages)
-#pragma omp parallel for schedule(static)
-  for (size_t j = 0; j < 2 * ny; ++j) {
-    // two planes back-to-back: stride is nx
-    double *row = planes_ptr[OLD] + j * nx;
-    for (size_t i = 0; i < nx; ++i)
-      row[i] = 0.0;
-  }
-  return 0;
-}
-#else
-
+// NOTE: Think about touching memory per thread currently no real difference
 int memory_allocate(const uint size[2], double **planes_ptr)
 /* TODO: Complete this
  *
@@ -310,7 +280,6 @@ int memory_allocate(const uint size[2], double **planes_ptr)
 
   return 0;
 }
-#endif
 
 /*
  * randomly spread heat sources
