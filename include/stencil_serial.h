@@ -5,7 +5,6 @@
 
 #include <float.h>
 #include <getopt.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -88,14 +87,14 @@ inline int inject_energy(const int periodic, const int Nsources,
   return 0;
 }
 
-// HACK: This is actually faster
+// HACK: This is actually a faster version of update_plane
 inline int update_plane_fast(const int periodic, const uint size[2],
                              const double *old_points, double *new_points) {
 
-  const int fxsize = size[_x_] + 2;
-  const int fysize = size[_y_] + 2;
-  const int xsize = size[_x_];
-  const int ysize = size[_y_];
+  register const int fxsize = size[_x_] + 2;
+  register const int fysize = size[_y_] + 2;
+  register const int xsize = size[_x_];
+  register const int ysize = size[_y_];
 
   const double alpha = 0.6;
   const double beta = (1.0 - alpha) * 0.25; // (1-alpha)/4
@@ -163,7 +162,6 @@ inline int update_plane(const int periodic, const uint size[2],
   const double beta = (1.0 - alpha) * 0.25; // (1-alpha)/4
 
 #define IDX(i, j) ((j) * fxsize + (i))
-#define OLD_VERSION 0
 
 // HINT: you may attempt to
 //       (i)  manually unroll the loop
@@ -180,7 +178,6 @@ inline int update_plane(const int periodic, const uint size[2],
 #pragma omp parallel for schedule(static)
   for (int j = 1; j <= ysize; j++) {
     for (int i = 1; i <= xsize; i++) {
-#if OLD_VERSION == 1
       //
       // five-points stencil formula
       //
@@ -195,21 +192,6 @@ inline int update_plane(const int periodic, const uint size[2],
                      4.0 * (1 - alpha);
       result += (sum_i + sum_j);
       new_points[IDX(i, j)] = result;
-#else
-      // Cache array accesses and use pointer arithmetic for better performance
-      // NOTE: Computation of the index is not efficient perhaps but I guess the
-      // reason because collapse is not faster is indeed that the compiler
-      // automatically does hoist j * fxsize outside the i loop
-      const double center = old_points[IDX(i, j)];
-      const double left = old_points[IDX(i - 1, j)];
-      const double right = old_points[IDX(i + 1, j)];
-      const double up = old_points[IDX(i, j - 1)];
-      const double down = old_points[IDX(i, j + 1)];
-
-      // Optimized computation - fewer operations
-      new_points[IDX(i, j)] =
-          center * alpha + beta * (left + right + up + down);
-#endif
 
       // NOTE: Professor left this comment I'm not really sure what I have to do
       // with it if it should be implemented or anything
@@ -270,10 +252,8 @@ inline int update_plane(const int periodic, const uint size[2],
 inline int get_total_energy(const uint size[2], const double *plane,
                             double *energy) {
 
-  // clang: ISO C++17 does not allow 'register' storage class specifier
-  const int xsize = size[_x_];
-
-#define IDX(i, j) ((j) * (xsize + 2) + (i))
+  register const int x_size = size[_x_];
+  register const int y_size = size[_x_];
 
 #if defined(LONG_ACCURACY)
   long double totenergy = 0;
@@ -281,18 +261,19 @@ inline int get_total_energy(const uint size[2], const double *plane,
   double totenergy = 0;
 #endif
 
-  // HINT: you may attempt to
-  //       (i)  manually unroll the loop
-  //       (ii) ask the compiler to do it
-  // for instance
-  // #pragma omp parallel for
-  //
+// HACK :Review this code snippet
+// HINT: you may attempt to
+//       (i)  manually unroll the loop
+//       (ii) ask the compiler to do it
+// for instance
 #pragma omp parallel for reduction(+ : totenergy)
-  for (uint j = 1; j <= size[_y_]; j++)
-    for (uint i = 1; i <= size[_x_]; i++)
-      totenergy += plane[IDX(i, j)];
-
-#undef IDX
+  for (uint j = 1; j <= y_size; ++j) {
+    const double *row = plane + j * (size[_x_] + 2);
+    // Automatically hints the compiler to do simd reduction here
+#pragma omp simd reduction(+ : totenergy)
+    for (uint i = 1; i <= x_size; ++i)
+      totenergy += row[i];
+  }
 
   *energy = (double)totenergy;
   return 0;

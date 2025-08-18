@@ -40,8 +40,11 @@ all: $(BASENAME)
 $(BASENAME):
 	$(MPICC) $(CFLAGS) $(SRC) -o $(BASENAME)
 
+test: all
+	pytest -v tests
+
 # Clean built executables
 clean:
-	rm -f stencil_parallel stencil_serial
+	rm -f stencil_parallel stencil_serial *.bin
 
 .PHONY: all clean

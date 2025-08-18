@@ -1,5 +1,8 @@
 # HPC Heat-Stencil Simulation
 
+> [!WARNING]
+> Remember to pin to specifc cores etc in OpenMP when on the HPC
+
 ## Overview
 
 This project implements a **2D heat-stencil simulation** with both **serial** and **parallel** versions.
