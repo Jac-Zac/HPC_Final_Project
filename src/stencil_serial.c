@@ -26,21 +26,13 @@ int main(int argc, char **argv) {
 
   double injected_heat = 0;
 
-  int injection_frequency;
   int output_energy_at_steps = 0;
 
   /* argument checking and setting */
   initialize(argc, argv, &S[0], &periodic, &Niterations, &Nsources, &Sources,
-             &energy_per_source, &planes[0], &output_energy_at_steps,
-             &injection_frequency);
+             &energy_per_source, &planes[0], &output_energy_at_steps);
 
   int current = OLD;
-
-  // FIX: For now I will comment this out
-  // I don't get why it is injecting energy also here
-  // if (injection_frequency > 1)
-  //   inject_energy(periodic, Nsources, Sources, energy_per_source, S,
-  //                 planes[current]);
 
   // allocate timing arrays
   double *comp_times = malloc(Niterations * sizeof(double));
@@ -52,12 +44,9 @@ int main(int argc, char **argv) {
 
   for (int iter = 0; iter < Niterations; iter++) {
     // New energy injected from sources
-    if (iter % injection_frequency == 0) {
-      printf("Injecting energy at iteration %d\n", iter); // ADD THIS
-      inject_energy(periodic, Nsources, Sources, energy_per_source, S,
-                    planes[current]);
-      injected_heat += Nsources * energy_per_source;
-    }
+    inject_energy(periodic, Nsources, Sources, energy_per_source, S,
+                  planes[current]);
+    injected_heat += Nsources * energy_per_source;
 
     double t_comp_start = CPU_TIME;
     /* update grid points */
@@ -145,7 +134,7 @@ int initialize(
     int *Nsources,    // how many heat sources
     int **Sources,
     double *energy_per_source, // how much heat per source
-    double **planes, int *output_energy_at_steps, int *injection_frequency) {
+    double **planes, int *output_energy_at_steps) {
 
   int ret;
 
@@ -158,9 +147,7 @@ int initialize(
   *Niterations = 99;
   *output_energy_at_steps = 0;
   *energy_per_source = 1.0;
-  *injection_frequency = *Niterations;
 
-  double freq = 0;
   // For reproducibility
   long int seed = -1;
 
@@ -169,7 +156,7 @@ int initialize(
   int show_help = 0;
   while (1) {
     int opt;
-    while ((opt = getopt(argc, argv, ":x:y:e:E:f:n:p:o:s:h")) != -1) {
+    while ((opt = getopt(argc, argv, ":x:y:e:E:n:p:o:s:h")) != -1) {
       switch (opt) {
       case 'x':
         S[_x_] = (uint)atoi(optarg);
@@ -198,10 +185,6 @@ int initialize(
       case 'o':
         *output_energy_at_steps = (atoi(optarg) > 0);
         break;
-
-      case 'f':
-        freq = atof(optarg);
-        break;
       case 's':
         seed = atol(optarg);
         break;
@@ -229,21 +212,12 @@ int initialize(
            "-y    y size of the plate [1000]\n"
            "-e    number of energy sources on the plate [1]\n"
            "-E    energy per source [1.0]\n"
-           "-f    frequency of energy injection [0.0]\n"
            "-n    number of iterations [99]\n"
            "-p    periodic boundaries [0 = false]\n"
            "-o    output energy at every step [0 = false]\n"
            "-s    random seed for reproducible sources [none]\n"
            "-h    display this help message\n");
     exit(0); // <--- exit immediately
-  }
-
-  // handle injection frequency
-  if (freq == 0)
-    *injection_frequency = 1;
-  else {
-    freq = (freq > 1.0 ? 1.0 : freq);
-    *injection_frequency = freq * *Niterations;
   }
 
   // validate parameters
@@ -346,22 +320,10 @@ int initialize_sources(uint size[2], int Nsources, int **Sources) {
   for (int s = 0; s < Nsources; s++) {
     (*Sources)[s * 2] = 1 + lrand48() % size[_x_];
     (*Sources)[s * 2 + 1] = 1 + lrand48() % size[_y_];
-    // ADD THIS DEBUG LINE:
-    printf("C Source %d: (%d, %d)\n", s, (*Sources)[s * 2],
-           (*Sources)[s * 2 + 1]);
   }
+
   return 0;
 }
-
-// int initialize_sources(uint size[2], int Nsources, int **Sources) {
-//   *Sources = (int *)malloc(Nsources * 2 * sizeof(uint));
-//   for (int s = 0; s < Nsources; s++) {
-//     (*Sources)[s * 2] = 1 + lrand48() % size[_x_];
-//     (*Sources)[s * 2 + 1] = 1 + lrand48() % size[_y_];
-//   }
-//
-//   return 0;
-// }
 
 int memory_release(double *data, int *sources) {
   if (data != NULL)

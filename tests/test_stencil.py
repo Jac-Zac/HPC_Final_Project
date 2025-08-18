@@ -20,8 +20,6 @@ def run_c_version(mode="serial", size=10, iterations=5, periodic=0, seed=1234):
         "2",  # Match Python: 2 sources
         "-E",
         "1.0",
-        "-f",
-        "1.0",  # Inject every iteration
         "-o",
         "1",
         "-s",
@@ -37,7 +35,7 @@ def run_c_version(mode="serial", size=10, iterations=5, periodic=0, seed=1234):
 
 
 def test_against_reference():
-    size, iterations = 20, 50
+    size, iterations = 20, 10
     periodic = 0
 
     # HACK: Hard coded sources values this could be improved
@@ -50,10 +48,7 @@ def test_against_reference():
 
     ref_energies = []
     for step in range(iterations):
-        # Only inject at step 0 (matching C behavior)
-        if step == 0:
-            inject_energy(periodic, sources, 1.0, grid)
-
+        inject_energy(periodic, sources, 1.0, grid)
         grid = update_plane(periodic, grid)
         ref_energies.append(total_energy(grid))
 

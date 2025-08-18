@@ -46,7 +46,7 @@ typedef unsigned int uint;
 // function prototypes
 
 int initialize(int, char **, uint *, int *, int *, int *, int **, double *,
-               double **, int *, int *);
+               double **, int *);
 
 int memory_release(double *, int *);
 
