@@ -50,8 +50,7 @@ int main(int argc, char **argv) {
 
     double t_comp_start = CPU_TIME;
     /* update grid points */
-    // update_plane(periodic, S, planes[current], planes[!current]);
-    update_plane_fast(periodic, S, planes[current], planes[!current]);
+    update_plane(periodic, S, planes[current], planes[!current]);
     double t_comp_end = CPU_TIME;
     comp_times[iter] = t_comp_end - t_comp_start;
 
