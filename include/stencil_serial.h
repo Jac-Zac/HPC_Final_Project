@@ -253,7 +253,7 @@ inline int get_total_energy(const uint size[2], const double *plane,
                             double *energy) {
 
   register const int x_size = size[_x_];
-  register const int y_size = size[_x_];
+  register const int y_size = size[_y_];
 
 #if defined(LONG_ACCURACY)
   long double totenergy = 0;

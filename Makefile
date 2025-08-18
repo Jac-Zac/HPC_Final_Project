@@ -42,6 +42,7 @@ $(BASENAME):
 
 test: all
 	pytest -v tests
+	rm -f stencil_parallel stencil_serial *.bin
 
 # Clean built executables
 clean:

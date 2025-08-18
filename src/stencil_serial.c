@@ -36,9 +36,11 @@ int main(int argc, char **argv) {
 
   int current = OLD;
 
-  if (injection_frequency > 1)
-    inject_energy(periodic, Nsources, Sources, energy_per_source, S,
-                  planes[current]);
+  // FIX: For now I will comment this out
+  // I don't get why it is injecting energy also here
+  // if (injection_frequency > 1)
+  //   inject_energy(periodic, Nsources, Sources, energy_per_source, S,
+  //                 planes[current]);
 
   // allocate timing arrays
   double *comp_times = malloc(Niterations * sizeof(double));
@@ -51,6 +53,7 @@ int main(int argc, char **argv) {
   for (int iter = 0; iter < Niterations; iter++) {
     // New energy injected from sources
     if (iter % injection_frequency == 0) {
+      printf("Injecting energy at iteration %d\n", iter); // ADD THIS
       inject_energy(periodic, Nsources, Sources, energy_per_source, S,
                     planes[current]);
       injected_heat += Nsources * energy_per_source;
@@ -343,10 +346,22 @@ int initialize_sources(uint size[2], int Nsources, int **Sources) {
   for (int s = 0; s < Nsources; s++) {
     (*Sources)[s * 2] = 1 + lrand48() % size[_x_];
     (*Sources)[s * 2 + 1] = 1 + lrand48() % size[_y_];
+    // ADD THIS DEBUG LINE:
+    printf("C Source %d: (%d, %d)\n", s, (*Sources)[s * 2],
+           (*Sources)[s * 2 + 1]);
   }
-
   return 0;
 }
+
+// int initialize_sources(uint size[2], int Nsources, int **Sources) {
+//   *Sources = (int *)malloc(Nsources * 2 * sizeof(uint));
+//   for (int s = 0; s < Nsources; s++) {
+//     (*Sources)[s * 2] = 1 + lrand48() % size[_x_];
+//     (*Sources)[s * 2 + 1] = 1 + lrand48() % size[_y_];
+//   }
+//
+//   return 0;
+// }
 
 int memory_release(double *data, int *sources) {
   if (data != NULL)
