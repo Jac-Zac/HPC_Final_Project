@@ -39,6 +39,7 @@
 #define _x_ 0
 #define _y_ 1
 
+#define GCC_EXTENSIONS
 typedef unsigned int uint;
 
 // ============================================================
@@ -54,6 +55,10 @@ extern int inject_energy(const int, const int, const int *, const double,
                          const uint[2], double *);
 
 extern int update_plane(const int, const uint[2], const double *, double *);
+
+#ifdef GCC_EXTENSIONS
+typedef double v2df __attribute__((vector_size(2 * sizeof(double))));
+#endif
 
 extern int get_total_energy(const uint[2], const double *, double *);
 
@@ -87,7 +92,6 @@ inline int inject_energy(const int periodic, const int Nsources,
   return 0;
 }
 
-#define GCC_EXTENSIONS
 #ifndef GCC_EXTENSIONS
 /*
  * calculate the new energy values
@@ -195,66 +199,144 @@ goes below zero energy alpha /= 2; } while (!done);
 
 #else
 
-// HACK: This is actually a faster version of update_plane
 inline int update_plane(const int periodic, const uint size[2],
-                        const double *old_points, double *new_points) {
+                        const double *__restrict old_points,
+                        double *__restrict new_points) {
+  const int f_xsize = size[_x_] + 2; // row stride (with ghosts)
+  const int x_size = size[_x_];      // interior columns 1..x_size
+  const int y_size = size[_y_];      // interior rows    1..y_size
 
-  register const int f_xsize = size[_x_] + 2;
-  register const int xsize = size[_x_];
-  register const int ysize = size[_y_];
-
-  // Pre-compute constants
+  // Vector/scalar constants
+  const v2df alpha_v = (v2df){0.6, 0.6};
+  const v2df beta_v = ((v2df){1.0, 1.0} - alpha_v) * (v2df){0.25, 0.25};
   const double alpha = 0.6;
-  const double beta = (1.0 - alpha) * 0.25; // (1-alpha)/4
+  const double beta = (1.0 - 0.6) * 0.25;
 
-  // Parallelize outer loop over rows: each thread works on full rows (avoids
-  // false sharing)
-// NOTE: Guided is indeed the faster scheduling method
+// Each thread works on complete rows
 #pragma omp parallel for schedule(guided)
-  for (int j = 1; j <= ysize; j++) {
+  for (int j = 1; j <= y_size; ++j) {
     const double *row_above = old_points + (j - 1) * f_xsize;
     const double *row_center = old_points + j * f_xsize;
     const double *row_below = old_points + (j + 1) * f_xsize;
     double *row_new = new_points + j * f_xsize;
 
-    // FIX: Understand why
-    // NOTE: Parallelizing this loop instead makes it super
-    for (int i = 1; i <= xsize; i++) {
-      // Five-point stencil
-      const double center = row_center[i];
-      const double left = row_center[i - 1];
-      const double right = row_center[i + 1];
-      const double up = row_above[i];
-      const double down = row_below[i];
+    // Vectorized over x, 2 elements at a time.
+    // We stop at x_size-1 so i+1 is still inside the interior.
+    int i = 1;
+    const int vec_limit = x_size - 1;
 
-      row_new[i] = center * alpha + beta * (left + right + up + down);
+    for (; i <= vec_limit; i += 2) {
+      // Unaligned loads are fine on x86; they’ll map to MOVDQU.
+      // Loads use ghosts at i-1 and i+1 automatically at edges.
+      const v2df center = *(const v2df *)&row_center[i];    // [i, i+1]
+      const v2df left = *(const v2df *)&row_center[i - 1];  // [i-1, i]
+      const v2df right = *(const v2df *)&row_center[i + 1]; // [i+1, i+2]
+      const v2df up = *(const v2df *)&row_above[i];         // [i, i+1]
+      const v2df down = *(const v2df *)&row_below[i];       // [i, i+1]
+
+      const v2df res = center * alpha_v + beta_v * (left + right + up + down);
+      *(v2df *)&row_new[i] = res; // store [i, i+1]
+    }
+
+    // Scalar tail if x_size is odd (last interior cell i == x_size)
+    for (; i <= x_size; ++i) {
+      const double c = row_center[i];
+      const double l = row_center[i - 1];
+      const double r = row_center[i + 1];
+      const double u = row_above[i];
+      const double d = row_below[i];
+      row_new[i] = c * alpha + beta * (l + r + u + d);
     }
   }
 
-  // Periodic boundary propagation
+  // Periodic boundary propagation (unchanged)
   if (periodic) {
     // Top & bottom wrap
     double *row_top = new_points + 1 * f_xsize;
-    double *row_bottom = new_points + ysize * f_xsize;
+    double *row_bottom = new_points + y_size * f_xsize;
     double *row_topghost = new_points + 0 * f_xsize;
-    double *row_bottomghost = new_points + (ysize + 1) * f_xsize;
+    double *row_bottomghost = new_points + (y_size + 1) * f_xsize;
 
-    for (int i = 1; i <= xsize; i++) {
+    for (int i = 1; i <= x_size; ++i) {
       row_topghost[i] = row_bottom[i];
       row_bottomghost[i] = row_top[i];
     }
 
     // Left & right wrap
-    for (int j = 1; j <= ysize; j++) {
+    for (int j = 1; j <= y_size; ++j) {
       double *row = new_points + j * f_xsize;
-      row[0] = row[xsize];     // left ghost = right boundary
-      row[xsize + 1] = row[1]; // right ghost = left boundary
+      row[0] = row[x_size];     // left ghost = right boundary
+      row[x_size + 1] = row[1]; // right ghost = left boundary
     }
   }
 
   return 0;
 }
 
+// // HACK: This is actually a faster version of update_plane
+// inline int update_plane(const int periodic, const uint size[2],
+//                         const double *old_points, double *new_points) {
+//
+//   register const int f_xsize = size[_x_] + 2;
+//   register const int x_size = size[_x_];
+//   register const int y_size = size[_y_];
+//
+//   // Pre-compute constants
+//   // GCC will broadcast the 0.6 into both lanes of the vector
+//   // vec of two double
+//   const v2df alpha = {0.6};
+//   const v2df beta = ((v2df){1.0, 1.0} - alpha) * (v2df){0.25, 0.25};
+//
+//   // Parallelize outer loop over rows: each thread works on full rows (avoids
+//   // false sharing)
+// // NOTE: Guided is indeed the faster scheduling method
+// #pragma omp parallel for schedule(guided)
+//   for (int j = 1; j <= y_size; j++) {
+//     const v2df *row_above = (const v2df *)(old_points + (j - 1) * f_xsize);
+//     const v2df *row_center = (const v2df *)(old_points + j * f_xsize);
+//     const v2df *row_below = (const v2df *)(old_points + (j + 1) * f_xsize);
+//     v2df *row_new = (v2df *)(new_points + j * f_xsize);
+//
+//     // FIX: Understand why
+//     // NOTE: Parallelizing this loop instead makes it super
+//     // Cache friendly if raw major I believe
+//     // This is also why it is good to do SIMD over the x
+//     for (int i = 1; i <= x_size; i += 2) {
+//       int vi = i / 2; // vector index
+//       v2df center = row_center[vi];
+//       v2df left = row_center[vi - 1]; // careful at boundary
+//       v2df right = row_center[vi + 1];
+//       v2df up = row_above[vi];
+//       v2df down = row_below[vi];
+//
+//       row_new[vi] = center * alpha + beta * (left + right + up + down);
+//     }
+//   }
+//
+//   // Periodic boundary propagation
+//   if (periodic) {
+//     // Top & bottom wrap
+//     double *row_top = new_points + 1 * f_xsize;
+//     double *row_bottom = new_points + y_size * f_xsize;
+//     double *row_topghost = new_points + 0 * f_xsize;
+//     double *row_bottomghost = new_points + (y_size + 1) * f_xsize;
+//
+//     for (int i = 1; i <= x_size; i++) {
+//       row_topghost[i] = row_bottom[i];
+//       row_bottomghost[i] = row_top[i];
+//     }
+//
+//     // Left & right wrap
+//     for (int j = 1; j <= y_size; j++) {
+//       double *row = new_points + j * f_xsize;
+//       row[0] = row[x_size];     // left ghost = right boundary
+//       row[x_size + 1] = row[1]; // right ghost = left boundary
+//     }
+//   }
+//
+//   return 0;
+// }
+//
 #endif
 
 /*
