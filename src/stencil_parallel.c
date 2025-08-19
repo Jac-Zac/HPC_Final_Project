@@ -1,7 +1,7 @@
 /*
  *
- *  mysizex   :   local x-extendion of your patch
- *  mysizey   :   local y-extension of your patch
+ *  my_size_x   :   local x-extension of your patch
+ *  my_size_y   :   local y-extension of your patch
  *
  */
 
@@ -11,7 +11,7 @@
 // ------------------------------------------------------------------
 
 int main(int argc, char **argv) {
-  MPI_Comm myCOMM_WORLD;
+  MPI_Comm my_COMM_WORLD;
   int Rank, Ntasks;
   uint neighbours[4];
 
@@ -27,14 +27,15 @@ int main(int argc, char **argv) {
   plane_t planes[2];
   buffers_t buffers[2];
 
-  int output_energy_stat_perstep;
+  int output_energy_stat_per_step;
 
-  /* initialize MPI envrionment */
+  // initialize MPI envrionment
   {
     int level_obtained;
 
-    // NOTE: change MPI_FUNNELED if appropriate
-    //
+    // TODO: change MPI_FUNNELED if appropriate
+    // NOTE: MPI_THREAD_MULTIPLE: Multiple threads may call MPI at any time
+    // without restrictions. (Might be useful)
     MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &level_obtained);
     if (level_obtained < MPI_THREAD_FUNNELED) {
       printf("MPI_thread level obtained is %d instead of %d\n", level_obtained,
@@ -45,12 +46,12 @@ int main(int argc, char **argv) {
 
     MPI_Comm_rank(MPI_COMM_WORLD, &Rank);
     MPI_Comm_size(MPI_COMM_WORLD, &Ntasks);
-    MPI_Comm_dup(MPI_COMM_WORLD, &myCOMM_WORLD);
+    MPI_Comm_dup(MPI_COMM_WORLD, &my_COMM_WORLD);
   }
 
-  /* argument checking and setting */
-  int ret = initialize(&myCOMM_WORLD, Rank, Ntasks, argc, argv, &S, &N,
-                       &periodic, &output_energy_stat_perstep, neighbours,
+  // argument checking and setting
+  int ret = initialize(&my_COMM_WORLD, Rank, Ntasks, argc, argv, &S, &N,
+                       &periodic, &output_energy_stat_per_step, neighbours,
                        &Niterations, &Nsources, &Nsources_local, &Sources_local,
                        &energy_per_source, &planes[0], &buffers[0]);
 
@@ -62,15 +63,13 @@ int main(int argc, char **argv) {
   }
 
   int current = OLD;
-  double t1 = MPI_Wtime(); /* take wall-clock time */
+  double t1 = MPI_Wtime(); // take wall-clock time
 
-  for (int iter = 0; iter < Niterations; ++iter)
-
-  {
+  for (int iter = 0; iter < Niterations; ++iter) {
 
     MPI_Request reqs[8];
 
-    /* new energy from sources */
+    // new energy from sources
     inject_energy(periodic, Nsources_local, Sources_local, energy_per_source,
                   &planes[current], N);
 
@@ -78,26 +77,27 @@ int main(int argc, char **argv) {
 
     // [A] fill the buffers, and/or make the buffers' pointers pointing to the
     // correct position
+    // NOTE: Should this be based on the rank ? I think so But I'm not sure
 
-    // [B] perfoem the halo communications
+    // [B] perform the halo communications
     //     (1) use Send / Recv
     //     (2) use Isend / Irecv
-    //         --> can you overlap communication and compution in this way?
+    //         --> can you overlap communication and companion in this way?
 
     // [C] copy the haloes data
 
     /* --------------------------------------  */
-    /* update grid points */
 
+    // update grid points
     update_plane(periodic, N, &planes[current], &planes[!current]);
 
-    /* output if needed */
-    if (output_energy_stat_perstep)
+    // output if needed
+    if (output_energy_stat_per_step)
       output_energy_stat(iter, &planes[!current],
                          (iter + 1) * Nsources * energy_per_source, Rank,
-                         &myCOMM_WORLD);
+                         &my_COMM_WORLD);
 
-    /* swap plane indexes for the new iteration */
+    // swap plane indexes for the new iteration
     current = !current;
   }
 
@@ -105,9 +105,9 @@ int main(int argc, char **argv) {
 
   output_energy_stat(-1, &planes[!current],
                      Niterations * Nsources * energy_per_source, Rank,
-                     &myCOMM_WORLD);
+                     &my_COMM_WORLD);
 
-  memory_release(buffers, planes);
+  memory_release(planes, buffers);
 
   MPI_Finalize();
   return 0;
@@ -127,7 +127,7 @@ uint simple_factorization(uint, int *, uint **);
 
 int initialize_sources(int, int, MPI_Comm *, uint[2], int, int *, vec2_t **);
 
-int memory_allocate(const int *, const vec2_t, buffers_t *, plane_t *);
+int memory_allocate(const uint *, const vec2_t *, buffers_t *, plane_t *);
 
 int initialize(MPI_Comm *Comm,
                int Me,        // the rank of the calling process
@@ -138,8 +138,9 @@ int initialize(MPI_Comm *Comm,
                vec2_t *N,     // two-uint array defining the MPI tasks' grid
                int *periodic, // periodic-boundary tag
                int *output_energy_stat,
-               int *neighbours, // four-int array that gives back the neighbours
-                                // of the calling task
+
+               uint *neighbours, // four-int array that gives back the
+                                 // neighbours of the calling task
                int *Niterations, // how many iterations
                int *Nsources,    // how many heat sources
                int *Nsources_local, vec2_t **Sources_local,
@@ -148,9 +149,10 @@ int initialize(MPI_Comm *Comm,
   int halt = 0;
   int ret;
   int verbose = 0;
+  int seed = -1;
 
   // ··································································
-  // set deffault values
+  // set default values
 
   (*S)[_x_] = 10000;
   (*S)[_y_] = 10000;
@@ -176,11 +178,11 @@ int initialize(MPI_Comm *Comm,
       buffers[b][d] = NULL;
 
   // ··································································
-  // process the commadn line
+  // process the command line
   //
   while (1) {
     int opt;
-    while ((opt = getopt(argc, argv, ":hx:y:e:E:n:o:p:v:")) != -1) {
+    while ((opt = getopt(argc, argv, ":hx:y:e:E:n:o:p:v:s:")) != -1) {
       switch (opt) {
       case 'x':
         (*S)[_x_] = (uint)atoi(optarg);
@@ -213,7 +215,9 @@ int initialize(MPI_Comm *Comm,
       case 'v':
         verbose = atoi(optarg);
         break;
-
+      case 's':
+        seed = atol(optarg);
+        break;
       case 'h': {
         if (Me == 0)
           printf(
@@ -245,12 +249,23 @@ int initialize(MPI_Comm *Comm,
     return 1;
 
   // ··································································
-  /*
-   * here we should check for all the parms being meaningful
-   *
-   */
+  // TODO: Complete checks for meaningful values
 
-  // ...
+  if ((*S)[_x_] <= 0 || (*S)[_y_] <= 0) {
+    if (Me == 0)
+      fprintf(stderr, "Error: grid size must be positive\n");
+    return 2;
+  }
+  if (*Nsources < 0) {
+    if (Me == 0)
+      fprintf(stderr, "Error: Nsources must be >= 0\n");
+    return 3;
+  }
+  if (*Niterations <= 0) {
+    if (Me == 0)
+      fprintf(stderr, "Error: Niterations must be > 0\n");
+    return 4;
+  }
 
   // ··································································
   /*
@@ -374,18 +389,28 @@ int initialize(MPI_Comm *Comm,
   // ··································································
   // allocae the needed memory
   //
-  ret = memory_allocate( plans, ... 
-  
+  ret = memory_allocate(neighbours, N, buffers, planes);
 
   // ··································································
-  // allocae the heat sources
+  // allocate the heat sources
   //
-  ret = initialize_sources( Me, Ntasks, Comm, mysize, *Nsources, Nsources_local, Sources_local );
-  
-  
+  ret = initialize_sources(Me, Ntasks, Comm, mysize, *Nsources, Nsources_local,
+                           Sources_local);
+  if (ret != 0) {
+    if (Me == 0)
+      fprintf(stderr, "Error initializing sources\n");
+    return 6;
+  }
+
   return 0;
 }
 
+// NOTE: Think of a better factorization which has more square like patches to
+// have better cache locality for OpenMP threads computations
+//
+// Think of using a Cartesian decomposition Topology-aware decomposition: With
+// the correct topology:
+// https://edoras.sdsu.edu/~mthomas/sp17.605/lectures/MPI-Cart-Comms-and-Topos.pdf
 uint simple_factorization(uint A, int *Nfactors, uint **factors)
 /*
  * rought factorization;
@@ -403,7 +428,6 @@ uint simple_factorization(uint A, int *Nfactors, uint **factors)
       N++;
       _A_ /= f;
     }
-
     f++;
   }
 
@@ -430,6 +454,12 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
                        int Nsources, int *Nsources_local, vec2_t **Sources)
 
 {
+  // NOTE: Implement something like this to deal with seeds
+  // if (seed >= 0) {
+  //   srand48(seed + Me); // shift per rank for different streams
+  // } else {
+  //   srand48(time(NULL) + Me * 1337);
+  // }
 
   srand48(time(NULL) ^ Me);
   int *tasks_with_sources = (int *)malloc(Nsources * sizeof(int));
@@ -461,10 +491,8 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
   return 0;
 }
 
-int memory_allocate(const int *neighbours, const vec2_t N,
-                    buffers_t *buffers_ptr, plane_t *planes_ptr)
-
-{
+int memory_allocate(const uint *neighbours, const vec2_t *N,
+                    buffers_t *buffers_ptr, plane_t *planes_ptr) {
   /*
     here you allocate the memory buffers that you need to
     (i)  hold the results of your computation
@@ -487,12 +515,12 @@ int memory_allocate(const int *neighbours, const vec2_t N,
 
     (ii) --- communications
 
-    you may need two buffers (one for sending and one for receiving)
-    for each one of your neighnours, that are at most 4:
+    You may need two buffers (one for sending and one for receiving)
+    for each one of your neighbours, that are at most 4:
     north, south, east amd west.
 
-    To them you need to communicate at most mysizex or mysizey
-    daouble data.
+    To them you need to communicate at most my_size_x or my_size_y
+    double data.
 
     These buffers are indexed by the buffer_ptr pointer so
     that
@@ -544,7 +572,8 @@ int memory_allocate(const int *neighbours, const vec2_t N,
   // correct positions
   //
 
-  // or, if you preer, just go on and allocate buffers
+  // NOTE: Do not do this!
+  // or, if you prefer, just go on and allocate buffers
   // also for north and south communications
 
   // ··················································
@@ -556,8 +585,8 @@ int memory_allocate(const int *neighbours, const vec2_t N,
   return 0;
 }
 
-int memory_release(plane_t *planes, ....) {
-
+// Release memory also for the buffers
+int memory_release(plane_t *planes, buffers_t *buffer_ptr) {
   if (planes != NULL) {
     if (planes[OLD].data != NULL)
       free(planes[OLD].data);
@@ -566,16 +595,28 @@ int memory_release(plane_t *planes, ....) {
       free(planes[NEW].data);
   }
 
+  // Free also the buffer for communication
+  if (buffer_ptr[RECV] != NULL) {
+    for (int j = 0; j < 4; j++)
+      free(buffer_ptr[RECV][j]);
+  }
+
+  if (buffer_ptr[SEND] != NULL) {
+    for (int j = 0; j < 4; j++)
+      free(buffer_ptr[SEND][j]);
+  }
+
   return 0;
 }
 
+// NOTE: Review this code
 int output_energy_stat(int step, plane_t *plane, double budget, int Me,
                        MPI_Comm *Comm) {
-
   double system_energy = 0;
   double tot_system_energy = 0;
   get_total_energy(plane, &system_energy);
 
+  // Reduce by patch knowing system energy
   MPI_Reduce(&system_energy, &tot_system_energy, 1, MPI_DOUBLE, MPI_SUM, 0,
              *Comm);
 

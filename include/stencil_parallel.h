@@ -4,7 +4,6 @@
  */
 
 #include <getopt.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,6 +33,8 @@ typedef uint vec2_t[2];
 typedef double *restrict buffers_t[4];
 
 typedef struct {
+  // restrict makes sure that the pointers are the only references
+  // to the memory they point to
   double *restrict data;
   vec2_t size;
 } plane_t;
@@ -46,10 +47,10 @@ extern int update_plane(const int, const vec2_t, const plane_t *, plane_t *);
 extern int get_total_energy(plane_t *, double *);
 
 int initialize(MPI_Comm *, int, int, int, char **, vec2_t *, vec2_t *, int *,
-               int *, int *, int *, int *, int *, vec2_t **, double *,
+               int *, uint *, int *, int *, int *, vec2_t **, double *,
                plane_t *, buffers_t *);
 
-int memory_release(plane_t *);
+int memory_release(plane_t *, buffers_t *);
 
 int output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 
@@ -67,14 +68,15 @@ inline int inject_energy(const int periodic, const int Nsources,
     data[IDX(x, y)] += energy;
 
     if (periodic) {
+      if (x == 1)
+        plane->data[IDX(N[_x_] + 1, y)] += energy;
       if ((N[_x_] == 1)) {
-        // propagate the boundaries if needed
-        // check the serial version
+        plane->data[IDX(0, y)] += energy;
       }
-
+      if (y == 1)
+        plane->data[IDX(x, N[_y_] + 1)] += energy;
       if ((N[_y_] == 1)) {
-        // propagate the boundaries if needed
-        // check the serial version
+        plane->data[IDX(x, 0)] += energy;
       }
     }
   }
@@ -95,15 +97,6 @@ inline int update_plane(const int periodic,
   uint register ysize = oldplane->size[_y_];
 
 #define IDX(i, j) ((j) * fxsize + (i))
-
-  // HINT: you may attempt to
-  //       (i)  manually unroll the loop
-  //       (ii) ask the compiler to do it
-  // for instance
-  // #pragma GCC unroll 4
-  //
-  // HINT: in any case, this loop is a good candidate
-  //       for openmp parallelization
 
   double *restrict old = oldplane->data;
   double *restrict new = newplane->data;
@@ -143,20 +136,11 @@ inline int update_plane(const int periodic,
   return 0;
 }
 
-inline int get_total_energy(plane_t *plane, double *energy)
-/*
- * NOTE: this routine a good candiadate for openmp
- *       parallelization
- */
-{
+inline int get_total_energy(plane_t *plane, double *energy) {
 
-  const int register xsize = plane->size[_x_];
-  const int register ysize = plane->size[_y_];
-  const int register fsize = xsize + 2;
-
-  double *restrict data = plane->data;
-
-#define IDX(i, j) ((j) * fsize + (i))
+  const int register x_size = plane->size[_x_];
+  const int register y_size = plane->size[_y_];
+  const int register f_size = x_size + 2;
 
 #if defined(LONG_ACCURACY)
   long double totenergy = 0;
@@ -164,17 +148,42 @@ inline int get_total_energy(plane_t *plane, double *energy)
   double totenergy = 0;
 #endif
 
-  // HINT: you may attempt to
-  //       (i)  manually unroll the loop
-  //       (ii) ask the compiler to do it
-  // for instance
-  // #pragma GCC unroll 4
-  for (int j = 1; j <= ysize; j++)
-    for (int i = 1; i <= xsize; i++)
-      totenergy += data[IDX(i, j)];
-
-#undef IDX
+#pragma omp parallel for reduction(+ : totenergy)
+  for (uint j = 1; j <= y_size; ++j) {
+    const double *row = plane->data + j * f_size;
+    // Automatically hints the compiler to do simd reduction here
+#pragma omp simd reduction(+ : totenergy)
+    for (uint i = 1; i <= x_size; ++i)
+      totenergy += row[i];
+  }
 
   *energy = (double)totenergy;
   return 0;
 }
+
+// NOTE: Old inefficient version
+// inline int get_total_energy(plane_t *plane, double *energy) {
+//
+//   const int register xsize = plane->size[_x_];
+//   const int register ysize = plane->size[_y_];
+//   const int register fsize = xsize + 2;
+//
+//   double *restrict data = plane->data;
+//
+// #define IDX(i, j) ((j) * fsize + (i))
+//
+// #if defined(LONG_ACCURACY)
+//   long double totenergy = 0;
+// #else
+//   double totenergy = 0;
+// #endif
+//
+//   for (int j = 1; j <= ysize; j++)
+//     for (int i = 1; i <= xsize; i++)
+//       totenergy += data[IDX(i, j)];
+//
+// #undef IDX
+//
+//   *energy = (double)totenergy;
+//   return 0;
+// }

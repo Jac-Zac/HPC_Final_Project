@@ -227,17 +227,21 @@ int initialize(
 
   // allocate memory
   ret = memory_allocate(S, planes);
-
   if (ret != 0)
     return ret;
 
-  // set RNG seed if provided
-  if (seed >= 0) {
-    srand48(seed);
-    printf("Using random seed %ld\n", seed);
-  } else {
-    srand48(time(NULL)); // fallback to time-based seed
-  }
+  // NOTE: Perhaps we need to do a more general test like this
+  // int local_ok = (planes[OLD].data != NULL && planes[NEW].data != NULL);
+  // int global_ok = 0;
+  //
+  // MPI_Allreduce(&local_ok, &global_ok, 1, MPI_INT, MPI_MIN, *Comm);
+  //
+  // if (!global_ok) {
+  //   if (Me == 0) {
+  //     fprintf(stderr, "Error: at least one rank failed to allocate
+  //     memory\n");
+  //   }
+  // }
 
   // initialize sources
   ret = initialize_sources(S, *Nsources, Sources);
