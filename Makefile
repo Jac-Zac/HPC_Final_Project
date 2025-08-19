@@ -1,9 +1,9 @@
 # Force mpicc and mpich to use gcc-15
-export OMPI_CC := gcc-15
-export MPICH_CC := gcc-15
+export OMPI_CC := gcc
+export MPICH_CC := gcc
 
 # Compiler
-CC = gcc-15
+CC = gcc
 MPICC = mpicc
 
 # Compilation flags
