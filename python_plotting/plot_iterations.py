@@ -16,6 +16,10 @@ def plot_timings(file_path="timings.log"):
 
     # Ensure numeric and drop invalid rows
     data = data.apply(pd.to_numeric, errors="coerce").dropna()
+    # Skip the first iteration for plotting
+
+    # NOTE: if you don't want to plot the first two iterations
+    # data = data.iloc[2:]  # all rows except the first
 
     # Use a built-in style to avoid errors
     plt.style.use("ggplot")  # safe built-in style
