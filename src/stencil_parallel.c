@@ -73,11 +73,10 @@ int main(int argc, char **argv) {
     inject_energy(periodic, Nsources_local, Sources_local, energy_per_source,
                   &planes[current], N);
 
-    /* -------------------------------------- */
+    /* --------------------------------------------------------------------- */
 
     // [A] fill the buffers, and/or make the buffers' pointers pointing to the
     // correct position
-    // NOTE: Should this be based on the rank ? I think so But I'm not sure
 
     // [B] perform the halo communications
     //     (1) use Send / Recv
@@ -85,6 +84,12 @@ int main(int argc, char **argv) {
     //         --> can you overlap communication and companion in this way?
 
     // [C] copy the haloes data
+
+    // TODO: Implement the following two functions
+
+    // Send new halos the one that was just computed
+    send_halos(&planes[!current], Rank, &my_COMM_WORLD);
+    recv_halos(&planes[!current], Rank, &my_COMM_WORLD);
 
     /* --------------------------------------  */
 
@@ -164,7 +169,10 @@ int initialize(MPI_Comm *Comm,
   *energy_per_source = 1.0;
 
   if (planes == NULL) {
-    // manage the situation
+    // Just on prints the error
+    if (Me == 0)
+      fprintf(stderr, "Error: planes pointer is NULL\n");
+    return 5; // error code
   }
 
   planes[OLD].size[0] = planes[OLD].size[0] = 0;
@@ -179,7 +187,6 @@ int initialize(MPI_Comm *Comm,
 
   // ··································································
   // process the command line
-  //
   while (1) {
     int opt;
     while ((opt = getopt(argc, argv, ":hx:y:e:E:n:o:p:v:s:")) != -1) {
@@ -306,15 +313,12 @@ int initialize(MPI_Comm *Comm,
   (*N)[_y_] = Grid[_y_];
 
   // ··································································
-  // my cooridnates in the grid of processors
-  //
+  // my coordinates in the grid of processors based on my rank
   int X = Me % Grid[_x_];
   int Y = Me / Grid[_x_];
 
   // ··································································
   // find my neighbours
-  //
-
   if (Grid[_x_] > 1) {
     if (*periodic) {
       neighbours[EAST] = Y * Grid[_x_] + (Me + 1) % Grid[_x_];
@@ -341,19 +345,24 @@ int initialize(MPI_Comm *Comm,
 
   // ··································································
   // the size of my patch
-  //
 
   /*
    * every MPI task determines the size sx x sy of its own domain
    * REMIND: the computational domain will be embedded into a frame
    *         that is (sx+2) x (sy+2)
-   *         the outern frame will be used for halo communication or
+   *         the outer frame will be used for halo communication or
    */
 
   vec2_t mysize;
+
+  // Split in a balanced way
   uint s = (*S)[_x_] / Grid[_x_];
   uint r = (*S)[_x_] % Grid[_x_];
+
+  // NOTE: Give extra cells to the first r tasks
   mysize[_x_] = s + (X < r);
+
+  // Do the same for the y axies
   s = (*S)[_y_] / Grid[_y_];
   r = (*S)[_y_] % Grid[_y_];
   mysize[_y_] = s + (Y < r);
@@ -388,12 +397,11 @@ int initialize(MPI_Comm *Comm,
 
   // ··································································
   // allocae the needed memory
-  //
   ret = memory_allocate(neighbours, N, buffers, planes);
 
   // ··································································
   // allocate the heat sources
-  //
+  // sources are local to the specific patch so to that specific rank
   ret = initialize_sources(Me, Ntasks, Comm, mysize, *Nsources, Nsources_local,
                            Sources_local);
   if (ret != 0) {
@@ -413,7 +421,7 @@ int initialize(MPI_Comm *Comm,
 // https://edoras.sdsu.edu/~mthomas/sp17.605/lectures/MPI-Cart-Comms-and-Topos.pdf
 uint simple_factorization(uint A, int *Nfactors, uint **factors)
 /*
- * rought factorization;
+ * rough factorization;
  * assumes that A is small, of the order of <~ 10^5 max,
  * since it represents the number of tasks
  #

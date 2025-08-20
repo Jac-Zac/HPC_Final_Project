@@ -42,6 +42,10 @@ typedef struct {
 extern int inject_energy(const int, const int, const vec2_t *, const double,
                          plane_t *, const vec2_t);
 
+// TODO: Implement
+extern int send_halos(plane_t *, int, MPI_Comm *);
+extern int recv_halos(plane_t *, int, MPI_Comm *);
+
 extern int update_plane(const int, const vec2_t, const plane_t *, plane_t *);
 
 extern int get_total_energy(plane_t *, double *);
