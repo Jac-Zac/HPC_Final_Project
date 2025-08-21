@@ -130,7 +130,8 @@ int main(int argc, char **argv) {
 
 uint simple_factorization(uint, int *, uint **);
 
-int initialize_sources(int, int, MPI_Comm *, uint[2], int, int *, vec2_t **);
+int initialize_sources(int, int, MPI_Comm *, uint[2], int, int *, vec2_t **,
+                       int);
 
 int memory_allocate(const uint *, const vec2_t *, buffers_t *, plane_t *);
 
@@ -402,7 +403,7 @@ int initialize(MPI_Comm *Comm,
   // ··································································
   // heat sources are local to the specific patch (thus to the specific rank)
   ret = initialize_sources(Me, Ntasks, Comm, my_size, *Nsources, Nsources_local,
-                           Sources_local);
+                           Sources_local, seed);
   if (ret != 0) {
     if (Me == 0)
       fprintf(stderr, "Error initializing sources\n");
@@ -458,17 +459,18 @@ uint simple_factorization(uint A, int *Nfactors, uint **factors)
 }
 
 int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
-                       int Nsources, int *Nsources_local, vec2_t **Sources)
+                       int Nsources, int *Nsources_local, vec2_t **Sources,
+                       int seed)
 
 {
-  // NOTE: Implement something like this to deal with seeds
-  // if (seed >= 0) {
-  //   srand48(seed + Me); // shift per rank for different streams
-  // } else {
-  //   srand48(time(NULL) + Me * 1337);
-  // }
+  if (seed < 0) {
+    // Do not set a custom seed if not defined
+    srand48(time(NULL) ^ Me);
+  } else {
+    // Set a fixed seed if one is defined
+    srand48(seed ^ Me);
+  }
 
-  srand48(time(NULL) ^ Me);
   int *tasks_with_sources = (int *)malloc(Nsources * sizeof(int));
 
   if (Me == 0) {
