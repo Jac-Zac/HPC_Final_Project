@@ -145,7 +145,7 @@ int initialize(MPI_Comm *Comm,
                int *output_energy_stat,
 
                uint *neighbours, // four-int array that gives back the
-                                 // neighbours of the calling task
+                                 // neighbours rank of the calling task
                int *Niterations, // how many iterations
                int *Nsources,    // how many heat sources
                int *Nsources_local, vec2_t **Sources_local,
@@ -353,24 +353,24 @@ int initialize(MPI_Comm *Comm,
    *         the outer frame will be used for halo communication or
    */
 
-  vec2_t mysize;
+  vec2_t my_size;
 
   // Split in a balanced way
   uint s = (*S)[_x_] / Grid[_x_];
   uint r = (*S)[_x_] % Grid[_x_];
 
   // NOTE: Give extra cells to the first r tasks
-  mysize[_x_] = s + (X < r);
+  my_size[_x_] = s + (X < r);
 
   // Do the same for the y axies
   s = (*S)[_y_] / Grid[_y_];
   r = (*S)[_y_] % Grid[_y_];
-  mysize[_y_] = s + (Y < r);
+  my_size[_y_] = s + (Y < r);
 
-  planes[OLD].size[0] = mysize[0];
-  planes[OLD].size[1] = mysize[1];
-  planes[NEW].size[0] = mysize[0];
-  planes[NEW].size[1] = mysize[1];
+  planes[OLD].size[0] = my_size[0];
+  planes[OLD].size[1] = my_size[1];
+  planes[NEW].size[0] = my_size[0];
+  planes[NEW].size[1] = my_size[1];
 
   if (verbose > 0) {
     if (Me == 0) {
@@ -396,13 +396,12 @@ int initialize(MPI_Comm *Comm,
   }
 
   // ··································································
-  // allocae the needed memory
+  // allocate the needed memory
   ret = memory_allocate(neighbours, N, buffers, planes);
 
   // ··································································
-  // allocate the heat sources
-  // sources are local to the specific patch so to that specific rank
-  ret = initialize_sources(Me, Ntasks, Comm, mysize, *Nsources, Nsources_local,
+  // heat sources are local to the specific patch (thus to the specific rank)
+  ret = initialize_sources(Me, Ntasks, Comm, my_size, *Nsources, Nsources_local,
                            Sources_local);
   if (ret != 0) {
     if (Me == 0)
@@ -499,6 +498,9 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
   return 0;
 }
 
+// NOTE: In the future I have to think carefully about the fact that if I want
+// to parallelize inside those patches the allotting should be done by the
+// threads to have a touch first policy
 int memory_allocate(const uint *neighbours, const vec2_t *N,
                     buffers_t *buffers_ptr, plane_t *planes_ptr) {
   /*
@@ -525,7 +527,7 @@ int memory_allocate(const uint *neighbours, const vec2_t *N,
 
     You may need two buffers (one for sending and one for receiving)
     for each one of your neighbours, that are at most 4:
-    north, south, east amd west.
+    north, south, east and west.
 
     To them you need to communicate at most my_size_x or my_size_y
     double data.
@@ -543,12 +545,12 @@ int memory_allocate(const uint *neighbours, const vec2_t *N,
   if (planes_ptr == NULL)
     // an invalid pointer has been passed
     // manage the situation
-    ;
+    return 1;
 
   if (buffers_ptr == NULL)
     // an invalid pointer has been passed
     // manage the situation
-    ;
+    return 2;
 
   // ··················································
   // allocate memory for data
@@ -560,13 +562,13 @@ int memory_allocate(const uint *neighbours, const vec2_t *N,
   planes_ptr[OLD].data = (double *)malloc(frame_size * sizeof(double));
   if (planes_ptr[OLD].data == NULL)
     // manage the malloc fail
-    ;
+    return -1;
   memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
 
   planes_ptr[NEW].data = (double *)malloc(frame_size * sizeof(double));
   if (planes_ptr[NEW].data == NULL)
     // manage the malloc fail
-    ;
+    return -2;
   memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
 
   // ··················································
@@ -579,14 +581,27 @@ int memory_allocate(const uint *neighbours, const vec2_t *N,
   // you may just make some pointers pointing to the
   // correct positions
   //
+  uint size_x = planes_ptr[OLD].size[_x_];
+  uint size_y = planes_ptr[OLD].size[_y_];
 
-  // NOTE: Do not do this!
+  // NOTE:To review
+  // +1 to skip the halo since we want the actual data I believe
+  buffers_ptr[SEND][NORTH] = &planes_ptr[OLD].data[1 * (size_x + 2) + 1];
+  buffers_ptr[SEND][SOUTH] = &planes_ptr[OLD].data[size_y * (size_x + 2) + 1];
+
+  // NOTE: Do not do this ! I think it is not optimal !
+  //
   // or, if you prefer, just go on and allocate buffers
   // also for north and south communications
 
   // ··················································
   // allocate buffers
-  //
+  // Both send and rexieve for west and east
+  buffers_ptr[SEND][WEST] = malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  buffers_ptr[RECV][WEST] = malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+
+  buffers_ptr[SEND][EAST] = malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  buffers_ptr[RECV][EAST] = malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
 
   // ··················································
 
