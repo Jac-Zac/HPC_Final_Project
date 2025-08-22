@@ -88,8 +88,21 @@ int main(int argc, char **argv) {
     // TODO: Implement the following two functions
 
     // Send new halos the one that was just computed
-    send_halos(&planes[!current], Rank, &my_COMM_WORLD);
-    recv_halos(&planes[!current], Rank, &my_COMM_WORLD);
+    ret = send_halos(buffers, planes[OLD].size, neighbours, &my_COMM_WORLD);
+    if (ret != 0) {
+      printf("task %d is opting out with termination code %d\n", Rank, ret);
+
+      MPI_Finalize();
+      return 0;
+    }
+
+    ret = recv_halos(buffers, planes[OLD].size, neighbours, &my_COMM_WORLD);
+    if (ret != 0) {
+      printf("task %d is opting out with termination code %d\n", Rank, ret);
+
+      MPI_Finalize();
+      return 0;
+    }
 
     /* --------------------------------------  */
 

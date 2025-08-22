@@ -42,9 +42,8 @@ typedef struct {
 extern int inject_energy(const int, const int, const vec2_t *, const double,
                          plane_t *, const vec2_t);
 
-// TODO: Implement
-extern int send_halos(plane_t *, int, MPI_Comm *);
-extern int recv_halos(plane_t *, int, MPI_Comm *);
+extern int send_halos(buffers_t *, vec2_t, uint *, MPI_Comm *);
+extern int recv_halos(buffers_t *, vec2_t, uint *, MPI_Comm *);
 
 extern int update_plane(const int, const vec2_t, const plane_t *, plane_t *);
 
@@ -86,6 +85,20 @@ inline int inject_energy(const int periodic, const int Nsources,
   }
 #undef IDX
 
+  return 0;
+}
+
+extern int send_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
+                      MPI_Comm *Comm) {
+
+  MPI_Send(&buffers[NORTH], size[_x_], MPI_DOUBLE, neighbours[NORTH], SEND,
+           *Comm);
+  MPI_Send(&buffers[SOUTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH], SEND,
+           *Comm);
+  MPI_Send(&buffers[EAST], size[_y_], MPI_DOUBLE, neighbours[EAST], SEND,
+           *Comm);
+  MPI_Send(&buffers[WEST], size[_y_], MPI_DOUBLE, neighbours[WEST], SEND,
+           *Comm);
   return 0;
 }
 
