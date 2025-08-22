@@ -92,14 +92,25 @@ inline int inject_energy(const int periodic, const int Nsources,
 inline extern int send_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
                              MPI_Comm *Comm) {
 
-  MPI_Send(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE, neighbours[NORTH], SEND,
+  // Neighbours tells me which rank to send to and the tag tells what I'm
+  // sending to which neighbour, thous he will know what it is receiving
+  // NOTE: Perhaps when I receive I have to think carefully in what buffer to
+  // put things from because if I receive from north I should but it in the
+  // south since the neighbour is the north neighbour I believe.
+  //
+  // TODO: Think about it more carefully and act accordingly perhaps I could
+  // directly send here with the correct tag for the receiver based on who I'm
+  // sending too
+  MPI_Send(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE, neighbours[NORTH],
+           NORTH, *Comm);
+
+  MPI_Send(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH],
+           SOUTH, *Comm);
+  MPI_Send(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST], EAST,
            *Comm);
-  MPI_Send(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH], SEND,
+  MPI_Send(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST], WEST,
            *Comm);
-  MPI_Send(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST], SEND,
-           *Comm);
-  MPI_Send(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST], SEND,
-           *Comm);
+
   return 0;
 }
 
