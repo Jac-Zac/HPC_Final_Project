@@ -88,17 +88,28 @@ inline int inject_energy(const int periodic, const int Nsources,
   return 0;
 }
 
-extern int send_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
-                      MPI_Comm *Comm) {
+// NOTE: Inline the function for efficiency
+inline extern int send_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
+                             MPI_Comm *Comm) {
 
-  MPI_Send(&buffers[NORTH], size[_x_], MPI_DOUBLE, neighbours[NORTH], SEND,
+  MPI_Send(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE, neighbours[NORTH], SEND,
            *Comm);
-  MPI_Send(&buffers[SOUTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH], SEND,
+  MPI_Send(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH], SEND,
            *Comm);
-  MPI_Send(&buffers[EAST], size[_y_], MPI_DOUBLE, neighbours[EAST], SEND,
+  MPI_Send(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST], SEND,
            *Comm);
-  MPI_Send(&buffers[WEST], size[_y_], MPI_DOUBLE, neighbours[WEST], SEND,
+  MPI_Send(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST], SEND,
            *Comm);
+  return 0;
+}
+
+inline extern int recv_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
+                             MPI_Comm *Comm) {
+
+  // TODO: Complete this
+  MPI_Recv(void *buf, int count, MPI_Datatype datatype, int source, int tag,
+           MPI_Comm comm, MPI_Status *status);
+
   return 0;
 }
 
@@ -126,6 +137,10 @@ inline int update_plane(const int periodic,
       //       in that case it is assumed that the +-1 points are outside the
       //       plate and always have a value of 0, i.e. they are an
       //       "infinite sink" of heat
+      //
+      // NOTE: That if here I put an if statement (for example to check the
+      // borders) it is likely that the compiler will not perform vectorization
+      // by himself automatically
 
       // five-points stencil formula
       //
@@ -137,6 +152,10 @@ inline int update_plane(const int periodic,
                                      4.0 / 2.0;
     }
 
+  // TODO: Check if here I can simply take the code from the serial version
+  // Perhaps I need to adjust things to work for the patches, though each plane
+  // will have the corresponding size which helps identify and are different for
+  // different ranks if I understood correctly
   if (periodic) {
     if (N[_x_] == 1) {
       // propagate the boundaries as needed
@@ -178,7 +197,7 @@ inline int get_total_energy(plane_t *plane, double *energy) {
   return 0;
 }
 
-// NOTE: Old inefficient version
+// WARNING: Old inefficient version
 // inline int get_total_energy(plane_t *plane, double *energy) {
 //
 //   const int register xsize = plane->size[_x_];

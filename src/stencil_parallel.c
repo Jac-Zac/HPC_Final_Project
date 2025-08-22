@@ -192,9 +192,11 @@ int initialize(MPI_Comm *Comm,
   planes[OLD].size[0] = planes[OLD].size[0] = 0;
   planes[NEW].size[0] = planes[NEW].size[0] = 0;
 
+  // Set the neighbours to MPI null as default
   for (int i = 0; i < 4; i++)
     neighbours[i] = MPI_PROC_NULL;
 
+  // Set initially the buffers to null pointres
   for (int b = 0; b < 2; b++)
     for (int d = 0; d < 4; d++)
       buffers[b][d] = NULL;
@@ -604,6 +606,9 @@ int memory_allocate(const uint *neighbours, const vec2_t *N,
   buffers_ptr[SEND][NORTH] = &planes_ptr[OLD].data[1 * (size_x + 2) + 1];
   buffers_ptr[SEND][SOUTH] = &planes_ptr[OLD].data[size_y * (size_x + 2) + 1];
 
+  // NOTE: The rest of the buffers so the RECV for north and south are set to
+  // NULL before so no need to do it here
+
   // NOTE: Do not do this ! I think it is not optimal !
   //
   // or, if you prefer, just go on and allocate buffers
@@ -647,7 +652,7 @@ int memory_release(plane_t *planes, buffers_t *buffer_ptr) {
   return 0;
 }
 
-// NOTE: Review this code
+// NOTE: Review this code though It is all written by the professor
 int output_energy_stat(int step, plane_t *plane, double budget, int Me,
                        MPI_Comm *Comm) {
   double system_energy = 0;
