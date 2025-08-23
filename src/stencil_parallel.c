@@ -105,8 +105,6 @@ int main(int argc, char **argv) {
                    statuses);
 
     // [C] copy the haloes data
-    // TODO: Define the function
-    // Copy received neighbor data into our ghost cells
     copy_received_halos(buffers, &planes[current], neighbours);
 
     /* --------------------------------------  */
