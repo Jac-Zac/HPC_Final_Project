@@ -243,6 +243,14 @@ int initialize(
   //   }
   // }
 
+  // set RNG seed if provided
+  if (seed >= 0) {
+    srand48(seed);
+    printf("Using random seed %ld\n", seed);
+  } else {
+    srand48(time(NULL)); // fallback to time-based seed
+  }
+
   // initialize sources
   ret = initialize_sources(S, *Nsources, Sources);
   if (ret != 0)

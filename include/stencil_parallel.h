@@ -31,7 +31,7 @@ typedef unsigned int uint;
 
 typedef uint vec2_t[2];
 typedef double *restrict buffers_t[4];
-
+// NOTE: Added a more specific definition
 typedef struct {
   // restrict makes sure that the pointers are the only references
   // to the memory they point to
@@ -39,11 +39,15 @@ typedef struct {
   vec2_t size;
 } plane_t;
 
-extern int inject_energy(const int, const int, const vec2_t *, const double,
-                         plane_t *, const vec2_t);
+extern void inject_energy(const int, const int, const vec2_t *, const double,
+                          plane_t *, const vec2_t);
 
-extern int send_halos(buffers_t *, vec2_t, uint *, MPI_Comm *);
-extern int recv_halos(buffers_t *, vec2_t, uint *, MPI_Comm *);
+// extern void send_halos(buffers_t *, vec2_t, uint *, MPI_Comm *);
+// extern void recv_halos(buffers_t *, vec2_t, uint *, MPI_Comm *,
+//                        MPI_Status statuses[4]);
+
+extern void exchange_halos(buffers_t buffers[2], vec2_t size, uint *neighbours,
+                           MPI_Comm *Comm, MPI_Status statuses[4]);
 
 extern int update_plane(const int, const vec2_t, const plane_t *, plane_t *);
 
@@ -57,9 +61,9 @@ int memory_release(plane_t *, buffers_t *);
 
 int output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 
-inline int inject_energy(const int periodic, const int Nsources,
-                         const vec2_t *Sources, const double energy,
-                         plane_t *plane, const vec2_t N) {
+inline void inject_energy(const int periodic, const int Nsources,
+                          const vec2_t *Sources, const double energy,
+                          plane_t *plane, const vec2_t N) {
   const uint register sizex = plane->size[_x_] + 2;
   double *restrict data = plane->data;
 
@@ -84,44 +88,68 @@ inline int inject_energy(const int periodic, const int Nsources,
     }
   }
 #undef IDX
-
-  return 0;
 }
 
-// NOTE: Inline the function for efficiency
-inline extern int send_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
-                             MPI_Comm *Comm) {
+// extern void send_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
+//                        MPI_Comm *Comm) {
+//
+//   // Neighbours tells me which rank to send to and the tag tells what I'm
+//   // sending to which neighbour, thous he will know what it is receiving
+//
+//   // Get num points based on the size of x since those are horizontal
+//   MPI_Send((const void *)buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
+//            neighbours[NORTH], NORTH, *Comm);
+//
+//   MPI_Send((const void *)buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
+//            neighbours[SOUTH], SOUTH, *Comm);
+//
+//   MPI_Send((const void *)buffers[SEND][EAST], size[_y_], MPI_DOUBLE,
+//            neighbours[EAST], EAST, *Comm);
+//   MPI_Send((const void *)buffers[SEND][WEST], size[_y_], MPI_DOUBLE,
+//            neighbours[WEST], WEST, *Comm);
+// }
+//
+// extern void recv_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
+//                        MPI_Comm *Comm, MPI_Status statuses[4]) {
+//
+//   // NOTE: When I receive from north I should put it in the
+//   // south since the neighbour is the north neighbour.
+//   MPI_Recv((void *)buffers[RECV][NORTH], size[_x_], MPI_DOUBLE,
+//            neighbours[SOUTH], SOUTH, *Comm, &statuses[0]);
+//   MPI_Recv((void *)buffers[RECV][SOUTH], size[_x_], MPI_DOUBLE,
+//            neighbours[NORTH], NORTH, *Comm, &statuses[1]);
+//   MPI_Recv((void *)buffers[RECV][WEST], size[_y_], MPI_DOUBLE,
+//   neighbours[EAST],
+//            EAST, *Comm, &statuses[2]);
+//   MPI_Recv((void *)buffers[RECV][EAST], size[_y_], MPI_DOUBLE,
+//   neighbours[WEST],
+//            WEST, *Comm, &statuses[3]);
+// }
 
-  // Neighbours tells me which rank to send to and the tag tells what I'm
-  // sending to which neighbour, thous he will know what it is receiving
-  // NOTE: Perhaps when I receive I have to think carefully in what buffer to
-  // put things from because if I receive from north I should but it in the
-  // south since the neighbour is the north neighbour I believe.
-  //
-  // TODO: Think about it more carefully and act accordingly perhaps I could
-  // directly send here with the correct tag for the receiver based on who I'm
-  // sending too
-  MPI_Send(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE, neighbours[NORTH],
-           NORTH, *Comm);
+// NOTE: Tmp version to test things out
+extern void exchange_halos(buffers_t buffers[2], vec2_t size, uint *neighbours,
+                           MPI_Comm *Comm, MPI_Status statuses[4]) {
+  // Exchange NORTH <-> SOUTH
+  MPI_Sendrecv(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE, neighbours[NORTH],
+               NORTH, buffers[RECV][NORTH], size[_x_], MPI_DOUBLE,
+               neighbours[SOUTH], NORTH, // 👈 expecting their NORTH send
+               *Comm, &statuses[0]);
 
-  MPI_Send(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH],
-           SOUTH, *Comm);
-  MPI_Send(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST], EAST,
-           *Comm);
-  MPI_Send(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST], WEST,
-           *Comm);
+  MPI_Sendrecv(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH],
+               SOUTH, buffers[RECV][SOUTH], size[_x_], MPI_DOUBLE,
+               neighbours[NORTH], SOUTH, // 👈 expecting their SOUTH send
+               *Comm, &statuses[1]);
 
-  return 0;
-}
+  // Exchange WEST <-> EAST
+  MPI_Sendrecv(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
+               WEST, buffers[RECV][WEST], size[_y_], MPI_DOUBLE,
+               neighbours[EAST], WEST, // 👈 expecting their WEST send
+               *Comm, &statuses[2]);
 
-inline extern int recv_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
-                             MPI_Comm *Comm) {
-
-  // TODO: Complete this
-  MPI_Recv(void *buf, int count, MPI_Datatype datatype, int source, int tag,
-           MPI_Comm comm, MPI_Status *status);
-
-  return 0;
+  MPI_Sendrecv(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
+               EAST, buffers[RECV][EAST], size[_y_], MPI_DOUBLE,
+               neighbours[WEST], EAST, // 👈 expecting their EAST send
+               *Comm, &statuses[3]);
 }
 
 inline int update_plane(const int periodic,
@@ -150,8 +178,8 @@ inline int update_plane(const int periodic,
       //       "infinite sink" of heat
       //
       // NOTE: That if here I put an if statement (for example to check the
-      // borders) it is likely that the compiler will not perform vectorization
-      // by himself automatically
+      // borders) it is likely that the compiler will not perform
+      // vectorization by himself automatically
 
       // five-points stencil formula
       //
@@ -164,9 +192,9 @@ inline int update_plane(const int periodic,
     }
 
   // TODO: Check if here I can simply take the code from the serial version
-  // Perhaps I need to adjust things to work for the patches, though each plane
-  // will have the corresponding size which helps identify and are different for
-  // different ranks if I understood correctly
+  // Perhaps I need to adjust things to work for the patches, though each
+  // plane will have the corresponding size which helps identify and are
+  // different for different ranks if I understood correctly
   if (periodic) {
     if (N[_x_] == 1) {
       // propagate the boundaries as needed

@@ -77,32 +77,37 @@ int main(int argc, char **argv) {
 
     // [A] fill the buffers, and/or make the buffers' pointers pointing to the
     // correct position
+    //
+    // Extract current boundary data into send buffers
+    //
+    // TODO: Define the function
+    fill_send_buffers(buffers, &planes[current]);
 
     // [B] perform the halo communications
     //     (1) use Send / Recv
     //     (2) use Isend / Irecv
     //         --> can you overlap communication and companion in this way?
+    //
+    // Send new halos the one that was just computed
+    //
+    // Initialize array of statuses
+    MPI_Status statuses[4];
+
+    // Check for errors in the communication
+    for (int i = 0; i < 4; i++) {
+      if (statuses[i].MPI_ERROR != MPI_SUCCESS) {
+        fprintf(stderr, "task %d: Error in received message %d: MPI_ERROR=%d\n",
+                Rank, i, statuses[i].MPI_ERROR);
+      }
+    }
+
+    exchange_halos(buffers, planes[current].size, neighbours, &my_COMM_WORLD,
+                   statuses);
 
     // [C] copy the haloes data
-
-    // TODO: Implement the following two functions
-
-    // Send new halos the one that was just computed
-    ret = send_halos(buffers, planes[OLD].size, neighbours, &my_COMM_WORLD);
-    if (ret != 0) {
-      printf("task %d is opting out with termination code %d\n", Rank, ret);
-
-      MPI_Finalize();
-      return 0;
-    }
-
-    ret = recv_halos(buffers, planes[OLD].size, neighbours, &my_COMM_WORLD);
-    if (ret != 0) {
-      printf("task %d is opting out with termination code %d\n", Rank, ret);
-
-      MPI_Finalize();
-      return 0;
-    }
+    // TODO: Define the function
+    // Copy received neighbor data into our ghost cells
+    copy_received_halos(buffers, &planes[current], neighbours);
 
     /* --------------------------------------  */
 
@@ -134,12 +139,14 @@ int main(int argc, char **argv) {
 /* ==========================================================================
    =                                                                        =
    =   routines called within the integration loop                          =
-   ========================================================================== */
+   ==========================================================================
+ */
 
 /* ==========================================================================
    =                                                                        =
    =   initialization                                                       =
-   ========================================================================== */
+   ==========================================================================
+ */
 
 uint simple_factorization(uint, int *, uint **);
 
@@ -243,14 +250,14 @@ int initialize(MPI_Comm *Comm,
         break;
       case 'h': {
         if (Me == 0)
-          printf(
-              "\nvalid options are ( values btw [] are the default values ):\n"
-              "-x    x size of the plate [10000]\n"
-              "-y    y size of the plate [10000]\n"
-              "-e    how many energy sources on the plate [4]\n"
-              "-E    how many energy sources on the plate [1.0]\n"
-              "-n    how many iterations [1000]\n"
-              "-p    whether periodic boundaries applies  [0 = false]\n\n");
+          printf("\nvalid options are ( values btw [] are the default values "
+                 "):\n"
+                 "-x    x size of the plate [10000]\n"
+                 "-y    y size of the plate [10000]\n"
+                 "-e    how many energy sources on the plate [4]\n"
+                 "-E    how many energy sources on the plate [1.0]\n"
+                 "-n    how many iterations [1000]\n"
+                 "-p    whether periodic boundaries applies  [0 = false]\n\n");
         halt = 1;
       } break;
 
@@ -638,15 +645,19 @@ int memory_release(plane_t *planes, buffers_t *buffer_ptr) {
       free(planes[NEW].data);
   }
 
-  // Free also the buffer for communication
-  if (buffer_ptr[RECV] != NULL) {
-    for (int j = 0; j < 4; j++)
-      free(buffer_ptr[RECV][j]);
-  }
+  // Free only EAST and WEST buffers (NORTH/SOUTH point to plane data)
+  if (buffer_ptr != NULL) {
+    // RECV buffers
+    if (buffer_ptr[RECV] != NULL) {
+      free(buffer_ptr[RECV][EAST]);
+      free(buffer_ptr[RECV][WEST]);
+    }
 
-  if (buffer_ptr[SEND] != NULL) {
-    for (int j = 0; j < 4; j++)
-      free(buffer_ptr[SEND][j]);
+    // SEND buffers
+    if (buffer_ptr[SEND] != NULL) {
+      free(buffer_ptr[SEND][EAST]);
+      free(buffer_ptr[SEND][WEST]);
+    }
   }
 
   return 0;
