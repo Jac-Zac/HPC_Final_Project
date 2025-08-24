@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+import sys
+
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -19,7 +21,7 @@ def plot_timings(file_path="timings.log"):
     # Skip the first iteration for plotting
 
     # NOTE: if you don't want to plot the first two iterations
-    # data = data.iloc[2:]  # all rows except the first
+    data = data.iloc[2:]  # all rows except the first
 
     # Use a built-in style to avoid errors
     plt.style.use("ggplot")  # safe built-in style
@@ -62,7 +64,10 @@ def plot_timings(file_path="timings.log"):
 
 
 def main():
-    file_path = "timings.log"
+    if len(sys.argv) > 2:
+        file_path = sys.argv[1]
+    else:
+        file_path = "timings.log"
     plot_timings(file_path)
 
 
