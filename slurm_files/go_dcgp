@@ -1,24 +1,42 @@
-  
-#SBATCH --nodes=[NNN]
-#SBATCH --cpus-per-task=[nr_of_omp_threads]
-#SBATCH --ntasks-per-node=[nr_of_mpi_tasks_per_node]
+#!/bin/bash
+#SBATCH --nodes=2
+#SBATCH --cpus-per-task=14
+#SBATCH --ntasks-per-node=8
 #SBATCH --mem=0
-#SBATCH --partition dcgp_usr_prod
+#SBATCH --partition=dcgp_usr_prod
 #SBATCH -A uTS25_Tornator_0
-#SBATCH -t [00:30:00]
-#SBATCH --job-name=[your_choice]
-##SBATCH --exclusive
+#SBATCH -t 00:10:00
+#SBATCH --job-name=stencil_hybrid
+#SBATCH --exclusive
 
-EXEC=[your_executable]
+# Set the executable name
+EXEC=./stencil_parallel
 
 # =======================================================
-
+# Load the required modules for GCC and OpenMPI
 module load gcc/12.2.0
 module load openmpi/4.1.6--gcc--12.2.0
 
+# Set OpenMP environment variables for performance
+# SLURM_CPUS_PER_TASK is automatically set by the #SBATCH directive above
+# export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+# Pin threads to physical cores
+# export OMP_PLACES=cores
+# Bind threads closely together, good for shared data
+# export OMP_PROC_BIND=close
 
-export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
-export OMP_PLACES=[your_choice]
-export OMP_PROC_BIND=[your_choice]
+# Set the total number of MPI tasks (SLURM calculates this: nodes * ntasks-per-node)
+TOTAL_MPI_TASKS=${SLURM_NTASKS}
 
-mpirun -np ${SLURM_NTASKS} ${EXEC} [your_arguments] > out   # rename the output file at your convenience
+# Define the arguments for the executable
+# Using a large grid for a multi-node run
+# # Non periodic outputting values
+ARGS="-x 10000 -y 10000 -n 50 -p 0 -o 0"
+
+# Print run information
+echo "Running on ${SLURM_NNODES} nodes with ${TOTAL_MPI_TASKS} MPI tasks."
+echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
+
+# Execute the parallel program using mpirun
+# The output will be saved to a file named 'out_leonardo.log'
+mpirun -np ${TOTAL_MPI_TASKS} ${EXEC} ${ARGS} > out_leonardo.log

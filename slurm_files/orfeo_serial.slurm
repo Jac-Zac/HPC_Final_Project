@@ -1,18 +1,33 @@
 #!/bin/bash
-#BATCH --nodes=1                   # 1 node
-#SBATCH --cpus-per-task=1          # serial run, 1 CPU is enough
-#SBATCH --ntasks-per-node=1        # 1 task
-#SBATCH --mem=0                    # use all memory
+#SBATCH --nodes=1                   # 1 node
+#SBATCH --cpus-per-task=8           # 8 OpenMP threads per MPI task
+#SBATCH --ntasks-per-node=1         # 4 MPI tasks on the node
+#SBATCH --mem=0                     # use all available memory
 #SBATCH --partition=THIN
-##SBATCH -A uTS25_Tornator_0       # your project/account
-#SBATCH -t 00:00:22                # 22 seconds
-#SBATCH --job-name=stencil_serial
+#SBATCH -t 00:00:30                 # 5 minutes
+#SBATCH --job-name=stencil_test
 
-EXEC=./stencil_serial              # your executable
+# Set the executable name
+EXEC=./stencil_serial
 
 # =======================================================
-export OMP_PLACES=threads
+# Set OpenMP environment variables
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_PLACES=cores
 export OMP_PROC_BIND=close
 
-# Run the code
-${EXEC} -x 5000 -y 5000 -n 500 > out_stencil_serial.log
+# Set the total number of MPI tasks
+TOTAL_MPI_TASKS=${SLURM_NTASKS}
+
+# Define the arguments for the executable
+# A medium-sized grid suitable for a single-node run
+ARGS="-x 5000 -y 5000 -n 50"
+
+# Print run information
+echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
+echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
+
+# Run the code using mpirun
+# The output will be saved to a file named 'out_orfeo_parallel.log'
+mpirun -np ${TOTAL_MPI_TASKS} ${EXEC} ${ARGS} > out_orfeo_parallel.log
+
