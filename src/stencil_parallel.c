@@ -62,10 +62,21 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  int current = OLD;
-  double t1 = MPI_Wtime(); // take wall-clock time
+  // Allocate timing arrays for logging
+  double *comp_times = (double *)malloc(Niterations * sizeof(double));
+  double *comm_times = (double *)malloc(Niterations * sizeof(double));
+  if (comp_times == NULL || comm_times == NULL) {
+    fprintf(stderr, "Rank %d: Failed to allocate timing arrays.\n", Rank);
+    MPI_Abort(my_COMM_WORLD, 1);
+  }
 
+  // Synchronize all ranks before starting the timer
+  MPI_Barrier(my_COMM_WORLD);
+
+  double total_start_time = MPI_Wtime();
+  int current = OLD;
   for (int iter = 0; iter < Niterations; ++iter) {
+    double t_comm_start, t_comp_start;
 
     MPI_Request reqs[8];
 
@@ -80,7 +91,9 @@ int main(int argc, char **argv) {
     //
     // Extract current boundary data into send buffers
     //
-    // TODO: Define the function
+
+    /* --- COMMUNICATION PHASE --- */
+    t_comm_start = MPI_Wtime();
     fill_send_buffers(buffers, &planes[current]);
 
     // [B] perform the halo communications
@@ -108,11 +121,17 @@ int main(int argc, char **argv) {
     // [C] copy the haloes data
     copy_received_halos(buffers, &planes[current], neighbours);
 
+    comm_times[iter] = MPI_Wtime() - t_comm_start;
     /* --------------------------------------  */
+
+    /* --- COMPUTATION PHASE --- */
+    t_comp_start = MPI_Wtime();
 
     // update grid points
     update_plane(periodic, N, &planes[current], &planes[!current]);
 
+    comp_times[iter] = MPI_Wtime() - t_comp_start;
+    /* ------------------------- */
     // output if needed
     if (output_energy_stat_per_step)
       output_energy_stat(iter, &planes[!current],
@@ -123,16 +142,59 @@ int main(int argc, char **argv) {
     current = !current;
   }
 
-  t1 = MPI_Wtime() - t1;
+  MPI_Barrier(my_COMM_WORLD); // Synchronize before final timing
+  double total_time = MPI_Wtime() - total_start_time;
 
-  if (Rank == 0) {
-    printf("Total time: %f seconds\n", t1);
+  double total_comp_time_local = 0.0;
+  double total_comm_time_local = 0.0;
+  for (int i = 0; i < Niterations; ++i) {
+    total_comp_time_local += comp_times[i];
+    total_comm_time_local += comm_times[i];
   }
 
+  double max_comp_time, max_comm_time;
+
+  MPI_Reduce(&total_comp_time_local, &max_comp_time, 1, MPI_DOUBLE, MPI_MAX, 0,
+             my_COMM_WORLD);
+  MPI_Reduce(&total_comm_time_local, &max_comm_time, 1, MPI_DOUBLE, MPI_MAX, 0,
+             my_COMM_WORLD);
+
+  double t_tot_energy_start = MPI_Wtime();
   output_energy_stat(-1, &planes[!current],
                      Niterations * Nsources * energy_per_source, Rank,
                      &my_COMM_WORLD);
+  double t_tot_energy_end = MPI_Wtime();
 
+  if (Rank == 0) {
+    printf("Total time: %f seconds\n", total_time);
+    printf("Max computation time across ranks: %f seconds\n", max_comp_time);
+    printf("Max communication time across ranks: %f seconds\n", max_comm_time);
+    printf("Total energy computaton time: %f \n",
+           t_tot_energy_end - t_tot_energy_start);
+  }
+
+  // --- Logging to file ---
+#if ENABLE_LOG
+  char filename[256];
+  sprintf(filename, "timings_rank_%d.log", Rank);
+  FILE *log_file = fopen(filename, "w");
+  if (log_file) {
+    fprintf(log_file, "iter comp_time comm_time\n");
+    for (int i = 0; i < Niterations; i++) {
+      fprintf(log_file, "%d %f %f\n", i, comp_times[i], comm_times[i]);
+    }
+    fclose(log_file);
+    if (Rank == 0) {
+      printf("Timing data written to timings_rank_*.log files\n");
+    }
+  } else {
+    fprintf(stderr, "Rank %d: Could not open log file %s\n", Rank, filename);
+  }
+#endif
+
+  // --- Cleanup ---
+  free(comp_times);
+  free(comm_times);
   memory_release(planes, buffers);
 
   MPI_Finalize();
