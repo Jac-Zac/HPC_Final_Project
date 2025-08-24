@@ -48,8 +48,8 @@ extern void fill_send_buffers(buffers_t buffers[2], plane_t *);
 // extern void recv_halos(buffers_t *, vec2_t, int *, MPI_Comm *,
 //                        MPI_Status statuses[4]);
 
-extern void exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
-                           MPI_Comm *Comm, MPI_Status statuses[4]);
+extern int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
+                          MPI_Comm *Comm, MPI_Status statuses[4]);
 
 extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 
@@ -112,6 +112,10 @@ void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
   memcpy(buffers[SEND][SOUTH], &plane->data[size_y * stride + 1],
          size_x * sizeof(double));
 
+  buffers[RECV][NORTH] = &plane->data[0 * stride + 1]; // ghost row 0
+  buffers[RECV][SOUTH] =
+      &plane->data[(size_y + 1) * stride + 1]; // ghost row sy+1
+  //
   // Fill WEST send buffer (leftmost internal column, i=1)
   for (uint j = 0; j < size_y; j++) {
     buffers[SEND][WEST][j] = plane->data[(j + 1) * stride + 1];
@@ -193,42 +197,37 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
 // }
 
 // NOTE: Tmp version to test things out
-void exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
-                    MPI_Comm *Comm, MPI_Status statuses[4]) {
-  // Exchange NORTH <-> SOUTH
-  if (neighbours[NORTH] != MPI_PROC_NULL &&
-      neighbours[SOUTH] != MPI_PROC_NULL) {
-    // Send north row to north neighbor, receive from south neighbor
-    MPI_Sendrecv(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE, neighbours[NORTH],
-                 SOUTH, // 👈 send with SOUTH tag
-                 buffers[RECV][NORTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH],
-                 NORTH, // 👈 expect NORTH tag
-                 *Comm, &statuses[0]);
+int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
+                   MPI_Comm *Comm, MPI_Status statuses[4]) {
+  const int TAG_NS = 0, TAG_EW = 1;
+  int rc;
 
-    // Send south row to south neighbor, receive from north neighbor
-    MPI_Sendrecv(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH],
-                 NORTH, // 👈 send with NORTH tag
-                 buffers[RECV][SOUTH], size[_x_], MPI_DOUBLE, neighbours[NORTH],
-                 SOUTH, // 👈 expect SOUTH tag
-                 *Comm, &statuses[1]);
-  }
+  rc = MPI_Sendrecv(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
+                    neighbours[NORTH], TAG_NS, buffers[RECV][NORTH], size[_x_],
+                    MPI_DOUBLE, neighbours[SOUTH], TAG_NS, *Comm, &statuses[0]);
 
-  // Exchange WEST <-> EAST
-  if (neighbours[WEST] != MPI_PROC_NULL && neighbours[EAST] != MPI_PROC_NULL) {
-    // Send west column to west neighbor, receive from east neighbor
-    MPI_Sendrecv(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
-                 EAST, // 👈 send with EAST tag
-                 buffers[RECV][WEST], size[_y_], MPI_DOUBLE, neighbours[EAST],
-                 WEST, // 👈 expect WEST tag
-                 *Comm, &statuses[2]);
+  if (rc != MPI_SUCCESS)
+    return rc;
 
-    // Send east column to east neighbor, receive from west neighbor
-    MPI_Sendrecv(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
-                 WEST, // 👈 send with WEST tag
-                 buffers[RECV][EAST], size[_y_], MPI_DOUBLE, neighbours[WEST],
-                 EAST, // 👈 expect EAST tag
-                 *Comm, &statuses[3]);
-  }
+  rc = MPI_Sendrecv(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
+                    neighbours[SOUTH], TAG_NS, buffers[RECV][SOUTH], size[_x_],
+                    MPI_DOUBLE, neighbours[NORTH], TAG_NS, *Comm, &statuses[1]);
+  if (rc != MPI_SUCCESS)
+    return rc;
+
+  rc = MPI_Sendrecv(buffers[SEND][WEST], size[_y_], MPI_DOUBLE,
+                    neighbours[WEST], TAG_EW, buffers[RECV][WEST], size[_y_],
+                    MPI_DOUBLE, neighbours[EAST], TAG_EW, *Comm, &statuses[2]);
+  if (rc != MPI_SUCCESS)
+    return rc;
+
+  rc = MPI_Sendrecv(buffers[SEND][EAST], size[_y_], MPI_DOUBLE,
+                    neighbours[EAST], TAG_EW, buffers[RECV][EAST], size[_y_],
+                    MPI_DOUBLE, neighbours[WEST], TAG_EW, *Comm, &statuses[3]);
+  if (rc != MPI_SUCCESS)
+    return rc;
+
+  return MPI_SUCCESS;
 }
 
 inline int update_plane(const int periodic,

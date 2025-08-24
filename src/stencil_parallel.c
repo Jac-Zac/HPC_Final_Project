@@ -29,6 +29,18 @@ int main(int argc, char **argv) {
 
   int output_energy_stat_per_step;
 
+  // // Timing variables
+  // double total_start_time, total_time;
+  // double comm_time_total = 0.0, comp_time_total = 0.0;
+  // double energy_injection_total = 0.0, buffer_fill_total = 0.0;
+  // double halo_exchange_total = 0.0, halo_copy_total = 0.0;
+  // double update_plane_total = 0.0, output_total = 0.0;
+  //
+  // // Per-iteration timing arrays for analysis
+  // double *comm_times = NULL;
+  // double *comp_times = NULL;
+  // double *iteration_times = NULL;
+
   // initialize MPI envrionment
   {
     int level_obtained;
@@ -96,16 +108,14 @@ int main(int argc, char **argv) {
     exchange_halos(buffers, planes[current].size, neighbours, &my_COMM_WORLD,
                    statuses);
 
-    // Wait for all the communication to be done
-    MPI_Barrier(my_COMM_WORLD);
-
     // Check for errors in the communication
-    for (int i = 0; i < 4; i++) {
-      if (statuses[i].MPI_ERROR != MPI_SUCCESS) {
-        fprintf(stderr, "task %d: Error in received message %d: MPI_ERROR=%d\n",
-                Rank, i, statuses[i].MPI_ERROR);
-      }
-    }
+    // for (int i = 0; i < 4; i++) {
+    //   if (statuses[i].MPI_ERROR != MPI_SUCCESS) {
+    //     fprintf(stderr, "task %d: Error in received message %d:
+    //     MPI_ERROR=%d\n",
+    //             Rank, i, statuses[i].MPI_ERROR);
+    //   }
+    // }
 
     // [C] copy the haloes data
     copy_received_halos(buffers, &planes[current], neighbours);
@@ -126,6 +136,10 @@ int main(int argc, char **argv) {
   }
 
   t1 = MPI_Wtime() - t1;
+
+  if (Rank == 0) {
+    printf("Total time: %f seconds\n", t1);
+  }
 
   output_energy_stat(-1, &planes[!current],
                      Niterations * Nsources * energy_per_source, Rank,

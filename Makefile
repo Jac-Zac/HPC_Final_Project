@@ -48,4 +48,21 @@ test: all
 clean:
 	rm -f stencil_parallel stencil_serial *.bin
 
-.PHONY: all clean
+# Help target
+help:
+	@echo "Usage:"
+	@echo "  make [target] [OPTIONS]"
+	@echo ""
+	@echo "Targets:"
+	@echo "  all            Build the default mode (parallel or serial)"
+	@echo "  stencil_parallel  Build the parallel version"
+	@echo "  stencil_serial    Build the serial version"
+	@echo "  test           Run tests with pytest"
+	@echo "  clean          Remove built executables and .bin files"
+	@echo "  help           Show this help message"
+	@echo ""
+	@echo "Options:"
+	@echo "  MODE=parallel|serial    Select which version to build (default: parallel)"
+	@echo "  LOG=1                   Enable logging in the compiled program"
+
+.PHONY: all clean help test
