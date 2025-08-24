@@ -129,34 +129,24 @@ void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
 
 void copy_received_halos(buffers_t buffers[2], plane_t *plane,
                          int *neighbours) {
-  const uint size_x = plane->size[_x_];
   const uint size_y = plane->size[_y_];
-  const uint stride = size_x + 2;
+  const uint stride = plane->size[_x_] + 2;
 
-  // NOTE: For north and south we can copy continues memory directly starting
-  // from the correct location
-  //
-  // Copy NORTH halo (from south neighbor to ghost row j=0)
-  if (neighbours[NORTH] != MPI_PROC_NULL) {
-    memcpy(&plane->data[1], buffers[RECV][NORTH], size_x * sizeof(double));
+  // NORTH and SOUTH are already in place thanks to direct MPI_Recv.
+  // We only need to unpack the non-contiguous columns.
+
+  // Copy WEST halo (from EAST neighbor)
+  if (neighbours[WEST] != MPI_PROC_NULL) {
+    for (uint j = 0; j < size_y; j++) {
+      plane->data[(j + 1) * stride + 0] = buffers[RECV][WEST][j];
+    }
   }
 
-  // Copy SOUTH halo (from north neighbor to ghost row j=size_y+1)
-  if (neighbours[SOUTH] != MPI_PROC_NULL) {
-    memcpy(&plane->data[(size_y + 1) * stride + 1], buffers[RECV][SOUTH],
-           size_x * sizeof(double));
-  }
-
-  // Read WEST send buffer (leftmost internal column, i=1)
-  for (uint j = 0; j < size_y; j++) {
-    // Indexing to get the west ghost column
-    plane->data[(j + 1) * stride + 0] = buffers[RECV][WEST][j];
-  }
-
-  // Read EAST send buffer (rightmost internal column, i=size_x)
-  for (uint j = 0; j < size_y; j++) {
-    // Indexing to get the est ghost column
-    plane->data[(j + 1) * stride + size_x + 1] = buffers[RECV][EAST][j];
+  // Copy EAST halo (from WEST neighbor)
+  if (neighbours[EAST] != MPI_PROC_NULL) {
+    for (uint j = 0; j < size_y; j++) {
+      plane->data[(j + 1) * stride + size_y + 1] = buffers[RECV][EAST][j];
+    }
   }
 }
 
@@ -272,15 +262,38 @@ inline int update_plane(const int periodic,
   // Perhaps I need to adjust things to work for the patches, though each
   // plane will have the corresponding size which helps identify and are
   // different for different ranks if I understood correctly
+  // if (periodic) {
+  //   if (N[_x_] == 1) {
+  //     // propagate the boundaries as needed
+  //     // check the serial version
+  //   }
+  //
+  //   if (N[_y_] == 1) {
+  //     // propagate the boundaries as needed
+  //     // check the serial version
+  //   }
+  // }
+  // HACK: Need to check this code currently just to have something
   if (periodic) {
+    // This handles periodicity if this rank is the ONLY one in the X dimension.
     if (N[_x_] == 1) {
-      // propagate the boundaries as needed
-      // check the serial version
+      for (uint j = 1; j <= ysize; j++) {
+        double *row = new + j *f_xsize;
+        row[0] = row[xsize];     // left ghost = right boundary
+        row[xsize + 1] = row[1]; // right ghost = left boundary
+      }
     }
 
+    // This handles periodicity if this rank is the ONLY one in the Y dimension.
     if (N[_y_] == 1) {
-      // propagate the boundaries as needed
-      // check the serial version
+      double *row_top = new + 1 * f_xsize;
+      double *row_bottom = new + ysize *f_xsize;
+      double *row_topghost = new + 0 * f_xsize;
+      double *row_bottomghost = new + (ysize + 1) * f_xsize;
+      for (uint i = 1; i <= xsize; i++) {
+        row_topghost[i] = row_bottom[i];
+        row_bottomghost[i] = row_top[i];
+      }
     }
   }
 

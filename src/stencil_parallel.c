@@ -29,18 +29,6 @@ int main(int argc, char **argv) {
 
   int output_energy_stat_per_step;
 
-  // // Timing variables
-  // double total_start_time, total_time;
-  // double comm_time_total = 0.0, comp_time_total = 0.0;
-  // double energy_injection_total = 0.0, buffer_fill_total = 0.0;
-  // double halo_exchange_total = 0.0, halo_copy_total = 0.0;
-  // double update_plane_total = 0.0, output_total = 0.0;
-  //
-  // // Per-iteration timing arrays for analysis
-  // double *comm_times = NULL;
-  // double *comp_times = NULL;
-  // double *iteration_times = NULL;
-
   // initialize MPI envrionment
   {
     int level_obtained;
