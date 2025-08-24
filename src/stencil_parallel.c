@@ -13,7 +13,7 @@
 int main(int argc, char **argv) {
   MPI_Comm my_COMM_WORLD;
   int Rank, Ntasks;
-  uint neighbours[4];
+  int neighbours[4];
 
   int Niterations;
   int periodic;
@@ -93,6 +93,12 @@ int main(int argc, char **argv) {
     // Initialize array of statuses
     MPI_Status statuses[4];
 
+    exchange_halos(buffers, planes[current].size, neighbours, &my_COMM_WORLD,
+                   statuses);
+
+    // Wait for all the communication to be done
+    MPI_Barrier(my_COMM_WORLD);
+
     // Check for errors in the communication
     for (int i = 0; i < 4; i++) {
       if (statuses[i].MPI_ERROR != MPI_SUCCESS) {
@@ -100,9 +106,6 @@ int main(int argc, char **argv) {
                 Rank, i, statuses[i].MPI_ERROR);
       }
     }
-
-    exchange_halos(buffers, planes[current].size, neighbours, &my_COMM_WORLD,
-                   statuses);
 
     // [C] copy the haloes data
     copy_received_halos(buffers, &planes[current], neighbours);
@@ -151,7 +154,7 @@ uint simple_factorization(uint, int *, uint **);
 int initialize_sources(int, int, MPI_Comm *, uint[2], int, int *, vec2_t **,
                        int);
 
-int memory_allocate(const uint *, const vec2_t *, buffers_t *, plane_t *);
+int memory_allocate(const int *, const vec2_t *, buffers_t *, plane_t *);
 
 int initialize(MPI_Comm *Comm,
                int Me,        // the rank of the calling process
@@ -163,7 +166,7 @@ int initialize(MPI_Comm *Comm,
                int *periodic, // periodic-boundary tag
                int *output_energy_stat,
 
-               uint *neighbours, // four-int array that gives back the
+               int *neighbours,  // four-int array that gives back the
                                  // neighbours rank of the calling task
                int *Niterations, // how many iterations
                int *Nsources,    // how many heat sources
@@ -194,8 +197,9 @@ int initialize(MPI_Comm *Comm,
     return 5; // error code
   }
 
-  planes[OLD].size[0] = planes[OLD].size[0] = 0;
-  planes[NEW].size[0] = planes[NEW].size[0] = 0;
+  // NOTE: What was that
+  planes[OLD].size[0] = 0;
+  planes[NEW].size[0] = 0;
 
   // Set the neighbours to MPI null as default
   for (int i = 0; i < 4; i++)
@@ -321,7 +325,10 @@ int initialize(MPI_Comm *Comm,
     uint first = 1;
     ret = simple_factorization(Ntasks, &Nf, &factors);
 
-    for (int i = 0; (i < Nf) && ((Ntasks / first) / first > formfactor); i++)
+    // for (int i = 0; (i < Nf) && ((Ntasks / first) / first > formfactor); i++)
+    // NOTE: Adding explicit casting
+    for (int i = 0; i < Nf && ((double)Ntasks / (first * first) > formfactor);
+         i++)
       first *= factors[i];
 
     if ((*S)[_x_] > (*S)[_y_])
@@ -335,15 +342,19 @@ int initialize(MPI_Comm *Comm,
 
   // ··································································
   // my coordinates in the grid of processors based on my rank
-  int X = Me % Grid[_x_];
-  int Y = Me / Grid[_x_];
+  uint X = Me % Grid[_x_];
+  uint Y = Me / Grid[_x_];
 
   // ··································································
   // find my neighbours
   if (Grid[_x_] > 1) {
     if (*periodic) {
       neighbours[EAST] = Y * Grid[_x_] + (Me + 1) % Grid[_x_];
-      neighbours[WEST] = (X % Grid[_x_] > 0 ? Me - 1 : (Y + 1) * Grid[_x_] - 1);
+      // NOTE: Old version
+      // neighbours[WEST] = (X % Grid[_x_] > 0 ? Me - 1 : (Y + 1) * Grid[_x_] -
+      // 1);
+      neighbours[WEST] =
+          (X % Grid[_x_] > 0 ? (int)(Me - 1) : (int)((Y + 1) * Grid[_x_] - 1));
     }
 
     else {
@@ -359,8 +370,14 @@ int initialize(MPI_Comm *Comm,
     }
 
     else {
-      neighbours[NORTH] = (Y > 0 ? Me - Grid[_x_] : MPI_PROC_NULL);
-      neighbours[SOUTH] = (Y < Grid[_y_] - 1 ? Me + Grid[_x_] : MPI_PROC_NULL);
+      // NOTE: Old version
+      // neighbours[NORTH] = (Y > 0 ? Me - Grid[_x_] : MPI_PROC_NULL);
+      // neighbours[SOUTH] = (Y < Grid[_y_] - 1 ? Me + Grid[_x_] :
+      // MPI_PROC_NULL);
+      //
+      neighbours[NORTH] = (Y > 0 ? (int)(Me - Grid[_x_]) : MPI_PROC_NULL);
+      neighbours[SOUTH] =
+          (Y < Grid[_y_] - 1 ? (int)(Me + Grid[_x_]) : MPI_PROC_NULL);
     }
   }
 
@@ -448,7 +465,7 @@ uint simple_factorization(uint A, int *Nfactors, uint **factors)
  */
 {
   int N = 0;
-  int f = 2;
+  uint f = 2;
   uint _A_ = A;
 
   while (f < A) {
@@ -521,9 +538,9 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
 }
 
 // NOTE: In the future I have to think carefully about the fact that if I want
-// to parallelize inside those patches the allotting should be done by the
-// threads to have a touch first policy
-int memory_allocate(const uint *neighbours, const vec2_t *N,
+// to parallelize inside those patches the allocation should be done by the
+// threads to have a touch first policy perhaps
+int memory_allocate(const int *neighbours, const vec2_t *N,
                     buffers_t *buffers_ptr, plane_t *planes_ptr) {
   /*
     here you allocate the memory buffers that you need to
@@ -594,6 +611,7 @@ int memory_allocate(const uint *neighbours, const vec2_t *N,
   memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
 
   // ··················································
+  // NOTE: This comment is done by the professor
   // buffers for north and south communication
   // are not really needed
   //
@@ -602,11 +620,10 @@ int memory_allocate(const uint *neighbours, const vec2_t *N,
   //
   // you may just make some pointers pointing to the
   // correct positions
-  //
+  // TODO: Complete the following code
   uint size_x = planes_ptr[OLD].size[_x_];
   uint size_y = planes_ptr[OLD].size[_y_];
 
-  // NOTE:To review
   // +1 to skip the halo since we want the actual data I believe
   buffers_ptr[SEND][NORTH] = &planes_ptr[OLD].data[1 * (size_x + 2) + 1];
   buffers_ptr[SEND][SOUTH] = &planes_ptr[OLD].data[size_y * (size_x + 2) + 1];
@@ -644,18 +661,21 @@ int memory_release(plane_t *planes, buffers_t *buffer_ptr) {
   }
 
   // Free only EAST and WEST buffers (NORTH/SOUTH point to plane data)
-  if (buffer_ptr != NULL) {
-    // RECV buffers
-    if (buffer_ptr[RECV] != NULL) {
-      free(buffer_ptr[RECV][EAST]);
-      free(buffer_ptr[RECV][WEST]);
-    }
+  // RECV buffers
+  if (buffer_ptr[RECV][WEST] != NULL) {
+    free(buffer_ptr[RECV][WEST]);
+  }
 
-    // SEND buffers
-    if (buffer_ptr[SEND] != NULL) {
-      free(buffer_ptr[SEND][EAST]);
-      free(buffer_ptr[SEND][WEST]);
-    }
+  if (buffer_ptr[RECV][EAST] != NULL) {
+    free(buffer_ptr[RECV][EAST]);
+  }
+
+  // SEND buffers
+  if (buffer_ptr[SEND][WEST] != NULL) {
+    free(buffer_ptr[SEND][WEST]);
+  }
+  if (buffer_ptr[SEND][EAST] != NULL) {
+    free(buffer_ptr[SEND][EAST]);
   }
 
   return 0;

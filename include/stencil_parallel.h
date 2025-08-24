@@ -44,21 +44,21 @@ extern void inject_energy(const int, const int, const vec2_t *, const double,
 
 extern void fill_send_buffers(buffers_t buffers[2], plane_t *);
 
-// extern void send_halos(buffers_t *, vec2_t, uint *, MPI_Comm *);
-// extern void recv_halos(buffers_t *, vec2_t, uint *, MPI_Comm *,
+// extern void send_halos(buffers_t *, vec2_t, int *, MPI_Comm *);
+// extern void recv_halos(buffers_t *, vec2_t, int *, MPI_Comm *,
 //                        MPI_Status statuses[4]);
 
-extern void exchange_halos(buffers_t buffers[2], vec2_t size, uint *neighbours,
+extern void exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
                            MPI_Comm *Comm, MPI_Status statuses[4]);
 
-extern void copy_received_halos(buffers_t buffers[2], plane_t *, uint *);
+extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 
 extern int update_plane(const int, const vec2_t, const plane_t *, plane_t *);
 
 extern int get_total_energy(plane_t *, double *);
 
 int initialize(MPI_Comm *, int, int, int, char **, vec2_t *, vec2_t *, int *,
-               int *, uint *, int *, int *, int *, vec2_t **, double *,
+               int *, int *, int *, int *, int *, vec2_t **, double *,
                plane_t *, buffers_t *);
 
 int memory_release(plane_t *, buffers_t *);
@@ -68,10 +68,11 @@ int output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 inline void inject_energy(const int periodic, const int Nsources,
                           const vec2_t *Sources, const double energy,
                           plane_t *plane, const vec2_t N) {
-  const uint register sizex = plane->size[_x_] + 2;
+  register const uint size_x = plane->size[_x_] + 2;
+
   double *restrict data = plane->data;
 
-#define IDX(i, j) ((j) * sizex + (i))
+#define IDX(i, j) ((j) * size_x + (i))
   for (int s = 0; s < Nsources; s++) {
     int x = Sources[s][_x_];
     int y = Sources[s][_y_];
@@ -123,7 +124,7 @@ void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
 }
 
 void copy_received_halos(buffers_t buffers[2], plane_t *plane,
-                         uint *neighbours) {
+                         int *neighbours) {
   const uint size_x = plane->size[_x_];
   const uint size_y = plane->size[_y_];
   const uint stride = size_x + 2;
@@ -155,7 +156,7 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
   }
 }
 
-// extern void send_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
+// extern void send_halos(buffers_t *buffers, vec2_t size, int *neighbours,
 //                        MPI_Comm *Comm) {
 //
 //   // Neighbours tells me which rank to send to and the tag tells what I'm
@@ -174,7 +175,7 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
 //            neighbours[WEST], WEST, *Comm);
 // }
 //
-// extern void recv_halos(buffers_t *buffers, vec2_t size, uint *neighbours,
+// extern void recv_halos(buffers_t *buffers, vec2_t size, int *neighbours,
 //                        MPI_Comm *Comm, MPI_Status statuses[4]) {
 //
 //   // NOTE: When I receive from north I should put it in the
@@ -192,37 +193,41 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
 // }
 
 // NOTE: Tmp version to test things out
-extern void exchange_halos(buffers_t buffers[2], vec2_t size, uint *neighbours,
-                           MPI_Comm *Comm, MPI_Status statuses[4]) {
+void exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
+                    MPI_Comm *Comm, MPI_Status statuses[4]) {
   // Exchange NORTH <-> SOUTH
-  if (neighbours[NORTH] != MPI_PROC_NULL ||
+  if (neighbours[NORTH] != MPI_PROC_NULL &&
       neighbours[SOUTH] != MPI_PROC_NULL) {
-    // Send north row to north neighbor, receive south ghost row from south
-    // neighbor
+    // Send north row to north neighbor, receive from south neighbor
     MPI_Sendrecv(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE, neighbours[NORTH],
-                 NORTH, buffers[RECV][SOUTH], size[_x_], MPI_DOUBLE,
-                 neighbours[SOUTH], NORTH, *Comm, &statuses[0]);
+                 SOUTH, // 👈 send with SOUTH tag
+                 buffers[RECV][NORTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH],
+                 NORTH, // 👈 expect NORTH tag
+                 *Comm, &statuses[0]);
 
-    // Send south row to south neighbor, receive north ghost row from north
-    // neighbor
+    // Send south row to south neighbor, receive from north neighbor
     MPI_Sendrecv(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE, neighbours[SOUTH],
-                 SOUTH, buffers[RECV][NORTH], size[_x_], MPI_DOUBLE,
-                 neighbours[NORTH], SOUTH, *Comm, &statuses[1]);
+                 NORTH, // 👈 send with NORTH tag
+                 buffers[RECV][SOUTH], size[_x_], MPI_DOUBLE, neighbours[NORTH],
+                 SOUTH, // 👈 expect SOUTH tag
+                 *Comm, &statuses[1]);
   }
 
   // Exchange WEST <-> EAST
-  if (neighbours[WEST] != MPI_PROC_NULL || neighbours[EAST] != MPI_PROC_NULL) {
-    // Send west column to west neighbor, receive east ghost column from east
-    // neighbor
+  if (neighbours[WEST] != MPI_PROC_NULL && neighbours[EAST] != MPI_PROC_NULL) {
+    // Send west column to west neighbor, receive from east neighbor
     MPI_Sendrecv(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
-                 WEST, buffers[RECV][EAST], size[_y_], MPI_DOUBLE,
-                 neighbours[EAST], WEST, *Comm, &statuses[2]);
+                 EAST, // 👈 send with EAST tag
+                 buffers[RECV][WEST], size[_y_], MPI_DOUBLE, neighbours[EAST],
+                 WEST, // 👈 expect WEST tag
+                 *Comm, &statuses[2]);
 
-    // Send east column to east neighbor, receive west ghost column from west
-    // neighbor
+    // Send east column to east neighbor, receive from west neighbor
     MPI_Sendrecv(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
-                 EAST, buffers[RECV][WEST], size[_y_], MPI_DOUBLE,
-                 neighbours[WEST], EAST, *Comm, &statuses[3]);
+                 WEST, // 👈 send with WEST tag
+                 buffers[RECV][EAST], size[_y_], MPI_DOUBLE, neighbours[WEST],
+                 EAST, // 👈 expect EAST tag
+                 *Comm, &statuses[3]);
   }
 }
 
@@ -231,13 +236,12 @@ inline int update_plane(const int periodic,
                         const plane_t *oldplane, plane_t *newplane)
 
 {
-  uint register fxsize = oldplane->size[_x_] + 2;
-  uint register fysize = oldplane->size[_y_] + 2;
+  uint f_xsize = oldplane->size[_x_] + 2;
 
-  uint register xsize = oldplane->size[_x_];
-  uint register ysize = oldplane->size[_y_];
+  uint xsize = oldplane->size[_x_];
+  uint ysize = oldplane->size[_y_];
 
-#define IDX(i, j) ((j) * fxsize + (i))
+#define IDX(i, j) ((j) * f_xsize + (i))
 
   double *restrict old = oldplane->data;
   double *restrict new = newplane->data;
@@ -287,9 +291,9 @@ inline int update_plane(const int periodic,
 
 inline int get_total_energy(plane_t *plane, double *energy) {
 
-  const int register x_size = plane->size[_x_];
-  const int register y_size = plane->size[_y_];
-  const int register f_size = x_size + 2;
+  register const int x_size = plane->size[_x_];
+  register const int y_size = plane->size[_y_];
+  register const int f_size = x_size + 2;
 
 #if defined(LONG_ACCURACY)
   long double totenergy = 0;

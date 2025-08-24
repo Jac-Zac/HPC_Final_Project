@@ -19,8 +19,8 @@ endif
 PARALLEL_SRC = src/stencil_parallel.c
 SERIAL_SRC   = src/stencil_serial.c
 
-# Default mode: serial
-MODE ?= serial
+# Default mode: parallel
+MODE ?= parallel
 
 # Select source and output basename based on mode
 ifeq ($(MODE),parallel)
