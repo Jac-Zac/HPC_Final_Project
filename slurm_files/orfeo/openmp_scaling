@@ -12,7 +12,7 @@ EXEC=./stencil_parallel
 ARGS="-x 5000 -y 5000 -n 100 -o 0"
 
 # Output summary file
-RESULTS_FILE=stencil_results.txt
+RESULTS_FILE=openmp_scaling.txt
 echo "Threads,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
 # Compile OpenMP version

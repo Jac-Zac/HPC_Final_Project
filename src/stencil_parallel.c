@@ -174,25 +174,6 @@ int main(int argc, char **argv) {
            t_tot_energy_end - t_tot_energy_start);
   }
 
-  // --- Logging to file ---
-#if ENABLE_LOG
-  char filename[256];
-  sprintf(filename, "timings_rank_%d.log", Rank);
-  FILE *log_file = fopen(filename, "w");
-  if (log_file) {
-    fprintf(log_file, "iter comp_time comm_time\n");
-    for (int i = 0; i < Niterations; i++) {
-      fprintf(log_file, "%d %f %f\n", i, comp_times[i], comm_times[i]);
-    }
-    fclose(log_file);
-    if (Rank == 0) {
-      printf("Timing data written to timings_rank_*.log files\n");
-    }
-  } else {
-    fprintf(stderr, "Rank %d: Could not open log file %s\n", Rank, filename);
-  }
-#endif
-
   // --- Cleanup ---
   free(comp_times);
   free(comm_times);

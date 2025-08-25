@@ -10,11 +10,6 @@ MPICC = mpicc
 # CFLAGS = -O1 -Wall -Wextra -fopenmp -Iinclude -fno-tree-vectorize
 CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude -g
 
-# Enable logging with make LOG=1
-ifeq ($(LOG),1)
-  CFLAGS += -DENABLE_LOG
-endif
-
 # Source files
 PARALLEL_SRC = src/stencil_parallel.c
 SERIAL_SRC   = src/stencil_serial.c
@@ -63,6 +58,5 @@ help:
 	@echo ""
 	@echo "Options:"
 	@echo "  MODE=parallel|serial    Select which version to build (default: parallel)"
-	@echo "  LOG=1                   Enable logging in the compiled program"
 
 .PHONY: all clean help test
