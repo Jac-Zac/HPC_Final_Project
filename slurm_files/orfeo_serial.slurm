@@ -1,10 +1,12 @@
 #!/bin/bash
 #SBATCH --nodes=1                   # 1 node
-#SBATCH --cpus-per-task=8           # 8 OpenMP threads per MPI task
-#SBATCH --ntasks-per-node=4         # 4 MPI tasks on the node
+#SBATCH --ntasks=1                  # total MPI tasks across nodes
+#SBATCH --ntasks-per-node=1         # 4 MPI tasks on the node
+#SBATCH --cpus-per-task=1           # 8 OpenMP threads per MPI task
 #SBATCH --mem=0                     # use all available memory
 #SBATCH --partition=THIN
 #SBATCH -t 00:00:30                 # 5 minutes
+#SBATCH --exclusive                 # Get exclusive access to benchmark
 #SBATCH --job-name=stencil_test
 
 # Set the executable name
@@ -31,7 +33,7 @@ echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
 echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 
 # Compiling with logging the serial version
-make MODE=parallel LOG=1
+make MODE=parallel LOG=0
 
 # Run the code using mpirun
 mpirun -np ${TOTAL_MPI_TASKS} ${EXEC} ${ARGS} > orfeo_output.log
