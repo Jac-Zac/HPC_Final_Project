@@ -8,7 +8,7 @@ MPICC = mpicc
 
 # Compilation flags
 # CFLAGS = -O1 -Wall -Wextra -fopenmp -Iinclude -fno-tree-vectorize
-CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude
+CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude -g
 
 # Enable logging with make LOG=1
 ifeq ($(LOG),1)

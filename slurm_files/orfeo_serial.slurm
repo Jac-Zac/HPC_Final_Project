@@ -24,7 +24,7 @@ TOTAL_MPI_TASKS=${SLURM_NTASKS}
 
 # Define the arguments for the executable
 # A medium-sized grid suitable for a single-node run
-ARGS="-x 5000 -y 5000 -n 100"
+ARGS="-x 5000 -y 5000 -n 100 -o 0"
 
 # Print run information
 echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."

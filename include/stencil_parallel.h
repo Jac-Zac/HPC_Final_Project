@@ -238,58 +238,49 @@ inline int update_plane_parallel(const int periodic,
   const double c_center = 0.5;  // = 1/2
   const double c_neigh = 0.125; // = 1/8
 
-#pragma omp parallel
-  {
 // Row-parallel, inner loop vectorized by compiler
-#pragma omp for schedule(static)
-    for (uint j = 1; j <= ysize; ++j) {
-      const double *row_above = oldp + (j - 1) * f_xsize;
-      const double *row_center = oldp + j * f_xsize;
-      const double *row_below = oldp + (j + 1) * f_xsize;
-      double *row_new = newp + j * f_xsize;
+#pragma omp parallel for schedule(guided)
+  for (uint j = 1; j <= ysize; ++j) {
+    const double *row_above = oldp + (j - 1) * f_xsize;
+    const double *row_center = oldp + j * f_xsize;
+    const double *row_below = oldp + (j + 1) * f_xsize;
+    double *row_new = newp + j * f_xsize;
 
-#pragma omp simd
-      for (uint i = 1; i <= xsize; ++i) {
-        const double center = row_center[i];
-        const double left = row_center[i - 1];
-        const double right = row_center[i + 1];
-        const double up = row_above[i];
-        const double down = row_below[i];
+    for (uint i = 1; i <= xsize; ++i) {
+      const double center = row_center[i];
+      const double left = row_center[i - 1];
+      const double right = row_center[i + 1];
+      const double up = row_above[i];
+      const double down = row_below[i];
 
-        row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
+      row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
+    }
+  }
+
+  // Periodic propagation for single-rank-in-dimension cases (your original
+  // intent)
+  if (periodic) {
+    // If only one rank along X, wrap left/right ghosts locally
+    if (N[_x_] == 1) {
+      for (uint j = 1; j <= ysize; ++j) {
+        double *row = newp + j * f_xsize;
+        row[0] = row[xsize];     // left ghost  <= right edge
+        row[xsize + 1] = row[1]; // right ghost <= left  edge
       }
     }
+    // If only one rank along Y, wrap top/bottom ghosts locally
+    if (N[_y_] == 1) {
+      double *row_top = newp + 1 * f_xsize;
+      double *row_bottom = newp + ysize * f_xsize;
+      double *row_topghost = newp + 0 * f_xsize;
+      double *row_bottomghost = newp + (ysize + 1) * f_xsize;
 
-// Periodic propagation for single-rank-in-dimension cases (your original
-// intent)
-#pragma omp single
-    {
-      if (periodic) {
-        // If only one rank along X, wrap left/right ghosts locally
-        if (N[_x_] == 1) {
-#pragma omp parallel for schedule(static)
-          for (uint j = 1; j <= ysize; ++j) {
-            double *row = newp + j * f_xsize;
-            row[0] = row[xsize];     // left ghost  <= right edge
-            row[xsize + 1] = row[1]; // right ghost <= left  edge
-          }
-        }
-        // If only one rank along Y, wrap top/bottom ghosts locally
-        if (N[_y_] == 1) {
-          double *row_top = newp + 1 * f_xsize;
-          double *row_bottom = newp + ysize * f_xsize;
-          double *row_topghost = newp + 0 * f_xsize;
-          double *row_bottomghost = newp + (ysize + 1) * f_xsize;
-
-#pragma omp parallel for schedule(static)
-          for (uint i = 1; i <= xsize; ++i) {
-            row_topghost[i] = row_bottom[i];
-            row_bottomghost[i] = row_top[i];
-          }
-        }
+      for (uint i = 1; i <= xsize; ++i) {
+        row_topghost[i] = row_bottom[i];
+        row_bottomghost[i] = row_top[i];
       }
-    } // single
-  } // parallel
+    }
+  }
 
   return 0;
 }
@@ -349,7 +340,8 @@ inline int update_plane(const int periodic,
   // }
   // HACK: Need to check this code currently just to have something
   if (periodic) {
-    // This handles periodicity if this rank is the ONLY one in the X dimension.
+    // This handles periodicity if this rank is the ONLY one in the X
+    // dimension.
     if (N[_x_] == 1) {
       for (uint j = 1; j <= ysize; j++) {
         double *row = new + j *f_xsize;
@@ -358,7 +350,8 @@ inline int update_plane(const int periodic,
       }
     }
 
-    // This handles periodicity if this rank is the ONLY one in the Y dimension.
+    // This handles periodicity if this rank is the ONLY one in the Y
+    // dimension.
     if (N[_y_] == 1) {
       double *row_top = new + 1 * f_xsize;
       double *row_bottom = new + ysize *f_xsize;
