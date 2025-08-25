@@ -1,0 +1,46 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1                # Only one task for pure OpenMP
+#SBATCH --cpus-per-task=64        # Max threads per node
+#SBATCH --mem=0
+#SBATCH --partition=GENOA
+#SBATCH -t 00:05:00
+#SBATCH --exclusive
+#SBATCH --job-name=stencil_scaling
+
+EXEC=./stencil_parallel
+ARGS="-x 5000 -y 5000 -n 100 -o 0"
+
+# Output summary file
+RESULTS_FILE=stencil_results.txt
+echo "Threads,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
+
+# Compile OpenMP version
+make MODE=parallel LOG=0
+
+# Loop over thread counts
+for THREADS in 1 2 4 8 16 32 64
+do
+    echo ">>> Running with $THREADS OpenMP threads"
+
+    # Set OpenMP environment variables
+    export OMP_NUM_THREADS=$THREADS
+    export OMP_PLACES=cores
+    export OMP_PROC_BIND=close
+
+    OUTPUT=$(mktemp)
+
+    # Run the executable (no mpirun)
+    $EXEC $ARGS > $OUTPUT
+
+    # Extract values from output log
+    TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
+    MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
+    MAX_COMM=$(grep "Max communication time" $OUTPUT | awk '{print $6}')
+    ENERGY_TIME=$(grep "Total energy computaton time" $OUTPUT | awk '{print $5}')
+
+    # Append to results file
+    echo "$THREADS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
+
+    rm $OUTPUT
+done
