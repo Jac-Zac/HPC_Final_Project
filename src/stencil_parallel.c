@@ -109,15 +109,6 @@ int main(int argc, char **argv) {
     exchange_halos(buffers, planes[current].size, neighbours, &my_COMM_WORLD,
                    statuses);
 
-    // Check for errors in the communication
-    // for (int i = 0; i < 4; i++) {
-    //   if (statuses[i].MPI_ERROR != MPI_SUCCESS) {
-    //     fprintf(stderr, "task %d: Error in received message %d:
-    //     MPI_ERROR=%d\n",
-    //             Rank, i, statuses[i].MPI_ERROR);
-    //   }
-    // }
-
     // [C] copy the haloes data
     copy_received_halos(buffers, &planes[current], neighbours);
 

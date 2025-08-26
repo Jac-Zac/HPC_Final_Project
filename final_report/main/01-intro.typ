@@ -3,46 +3,94 @@
 #pagebreak()
 
 = Introduction
+
 == Objective
 
-This report aims at evaluating and comparing the performance of virtual machines (VMs) and containers in a controlled environment. Specifically, we use VirtualBox #footnote()[https://www.virtualbox.org] @virtualbox to deploy VMs and Docker #footnote()[https://www.docker.com] @docker to run containers, both operating Ubuntu Server #footnote()[https://ubuntu.com/download/server] @ubuntu-server.
+This report aims at implementing, parallelizing, and evaluating the performance of a _5-point stencil heat equation solver_.
+The exercise requires starting from a serial template and progressively introducing _MPI_ (for distributed memory parallelization) and _OpenMP_ (for shared memory parallelization).
 
-The experiment is structured into two phases: first, setting up a cluster of VMs and a parallel cluster of containers with equivalent resource constraints; second, executing a series of benchmarks to measure and analyze their performance.
+Specifically, the objectives are:
 
-== Benchmark Overview
+- To design a correct parallel solver with proper boundary handling and energy source injection.
+- To analyze performance and scalability of the implementation across different thread/task configurations.
+- To compare _strong scaling_ and _weak scaling_ behaviors on the Leonardo supercomputer.
 
-The following tools and methods were used to assess different performance dimensions: 
+#line()
 
-- *CPU & Memory*:
-  - High-Performance Linpack (HPL) and the HPC Challenge (HPCC) suite
-  - `sysbench` and `stress-ng` for general system load testing
-- *Disk I/O*:
-  - `IOZone` and for local and shared disk performance
-- *Network*:
-  - `iperf3` for measuring throughput and latency between nodes
+== Methodology
 
-== Host configuration 
+=== Heat Equation and Stencil Computation
 
-The host computer has the following specifications: 
-- *OS*: macOS Sequoia 15.4.1.
+- Governing equation: 2D heat diffusion with explicit finite-difference discretization.
+- Five-point stencil approximation: new value at (i,j) depends on itself and its four immediate neighbors.
+- Boundary conditions: periodic or fixed, depending on configuration.
 
-- *CPU*: Apple M4 Pro 12c/12t (8 Performance + 4 Efficiency). Base/Boost clock speed: ~3.4/4.5 GHz (P-cores). Each core thread corresponds to one core.
+=== Parallelization Strategy
 
-- *RAM*: 24 GB Unified LPDDR5X. Fully shared between CPU/GPU Neural Engine.
+- _MPI domain decomposition_: splitting the computational grid across MPI tasks.
+- _OpenMP parallelization_: updating the local grid with multi-threading.
+- _Communication model_: halo exchange between neighboring MPI tasks.
+- _Instrumentation_: timers used to separately measure computation and communication overhead.
 
-- *Disk*: Apple NVMe SSD 512GB SSD.
+== Computational Environment
 
-- VBoxManage --version 7.1.8r168469
--  Docker version 28.1.1, build 4eba377327
+- _System_: Leonardo Supercomputer (DCGP partition).
+- _Nodes_: Dual-socket CPUs, 56 cores/socket (112 cores/node).
+- _Software stack_:
+
+  - MPI implementation provided on Leonardo
+  - OpenMP runtime from GCC/Intel compilers
+  - SLURM workload manager (submission via `go_dcgp` batch script)
+
+#line()
+
+== Benchmarking & Scalability Studies
+
+== OpenMP Scaling
+
+- Single MPI task, thread count varied as {1,2,4,8,16,32,56,84,112}.
+- Goal: assess shared-memory scalability, choose optimal threads-per-task ratio.
+
+== MPI Scaling
+
+- Based on OpenMP results, fix threads-per-task and scale number of MPI tasks.
+- Strong scaling: problem size fixed, resources scaled {1,2,4,8,16,32 nodes}.
+- Weak scaling: workload per core fixed, problem size scaled with number of nodes.
+
+=== Metrics Collected
+
+- Execution time per iteration.
+- Communication/computation split.
+- Speedup and efficiency:
+
+  - *Speedup* $"Sp" = t(1) / t(n)$
+  - *Efficiency* $"Eff" = "Sp" / n$
+
+#line()
+
+== Results & Analysis
+
+- _OpenMP results_: plots showing speedup/efficiency across thread counts.
+- _Strong scaling results_: speedup vs ideal scaling, efficiency drop with more nodes.
+- _Weak scaling results_: runtime stability with increasing nodes, efficiency losses due to communication.
+- _Discussion_: identify bottlenecks (communication overhead, load imbalance, boundary conditions).
+
+#line()
+
+== Conclusion
+
+- The stencil solver scales well up to X nodes, but efficiency declines beyond Y due to communication costs.
+- OpenMP parallelization achieves good performance up to Z threads before diminishing returns.
+- MPI scaling shows that problem size must be sufficiently large to achieve efficiency.
+- The implementation highlights trade-offs between communication overhead and computation parallelism.
+
+#line()
 
 == Project Scope
 
-*This report focuses on:*
+This report focuses on:
 
-- Documenting the setup process for both virtualised and containerized clusters
-- Presenting benchmark results for each test case
-- Analyzing and comparing the outcomes across environments
-
-#todobox()[
-The full set of benchmark data and scripts used in this analysis is available on #link("https://github.com/Jac-Zac/Cloud-Computing-Final-Exam")[GitHub], with custom README.md for each essentially each part of the process.
-]
+- Implementing a hybrid MPI+OpenMP stencil solver.
+- Documenting job submission and instrumentation strategies.
+- Presenting strong/weak scaling results on Leonardo.
+- Analyzing performance trends in relation to theoretical models (Amdahl’s and Gustafson’s laws).
