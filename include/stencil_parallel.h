@@ -227,9 +227,9 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
 }
 
 // replace your update_plane with this version
-inline int update_plane_parallel(const int periodic,
-                                 const vec2_t N, // MPI grid of ranks
-                                 const plane_t *oldplane, plane_t *newplane) {
+int update_plane_parallel(const int periodic,
+                          const vec2_t N, // MPI grid of ranks
+                          const plane_t *oldplane, plane_t *newplane) {
 
   const uint f_xsize = oldplane->size[_x_] + 2;
   const uint xsize = oldplane->size[_x_];
@@ -238,7 +238,7 @@ inline int update_plane_parallel(const int periodic,
   double *restrict newp = newplane->data;
   const double *restrict oldp = oldplane->data;
 
-  // Precompute stencil coefficients for clarity
+  // Pre-compute stencil coefficients for clarity
   const double c_center = 0.5;  // = 1/2
   const double c_neigh = 0.125; // = 1/8
 
@@ -257,7 +257,6 @@ inline int update_plane_parallel(const int periodic,
       const double up = row_above[i];
       const double down = row_below[i];
 
-      // row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
       row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
     }
   }
@@ -332,40 +331,15 @@ inline int update_plane(const int periodic,
   // Perhaps I need to adjust things to work for the patches, though each
   // plane will have the corresponding size which helps identify and are
   // different for different ranks if I understood correctly
-  // if (periodic) {
-  //   if (N[_x_] == 1) {
-  //     // propagate the boundaries as needed
-  //     // check the serial version
-  //   }
-  //
-  //   if (N[_y_] == 1) {
-  //     // propagate the boundaries as needed
-  //     // check the serial version
-  //   }
-  // }
-  // HACK: Need to check this code currently just to have something
   if (periodic) {
-    // This handles periodicity if this rank is the ONLY one in the X
-    // dimension.
     if (N[_x_] == 1) {
-      for (uint j = 1; j <= ysize; j++) {
-        double *row = new + j *f_xsize;
-        row[0] = row[xsize];     // left ghost = right boundary
-        row[xsize + 1] = row[1]; // right ghost = left boundary
-      }
+      // propagate the boundaries as needed
+      // check the serial version
     }
 
-    // This handles periodicity if this rank is the ONLY one in the Y
-    // dimension.
     if (N[_y_] == 1) {
-      double *row_top = new + 1 * f_xsize;
-      double *row_bottom = new + ysize *f_xsize;
-      double *row_topghost = new + 0 * f_xsize;
-      double *row_bottomghost = new + (ysize + 1) * f_xsize;
-      for (uint i = 1; i <= xsize; i++) {
-        row_topghost[i] = row_bottom[i];
-        row_bottomghost[i] = row_top[i];
-      }
+      // propagate the boundaries as needed
+      // check the serial version
     }
   }
 
@@ -379,6 +353,8 @@ inline int get_total_energy(plane_t *plane, double *energy) {
   register const int y_size = plane->size[_y_];
   register const int f_size = x_size + 2;
 
+  double *restrict data = plane->data;
+
 #if defined(LONG_ACCURACY)
   long double totenergy = 0;
 #else
@@ -387,7 +363,7 @@ inline int get_total_energy(plane_t *plane, double *energy) {
 
 #pragma omp parallel for reduction(+ : totenergy)
   for (uint j = 1; j <= y_size; ++j) {
-    const double *row = plane->data + j * f_size;
+    const double *row = data + j * f_size;
     // Automatically hints the compiler to do simd reduction here
 #pragma omp simd reduction(+ : totenergy)
     for (uint i = 1; i <= x_size; ++i)
@@ -397,30 +373,3 @@ inline int get_total_energy(plane_t *plane, double *energy) {
   *energy = (double)totenergy;
   return 0;
 }
-
-// WARNING: Old inefficient version
-// inline int get_total_energy(plane_t *plane, double *energy) {
-//
-//   const int register xsize = plane->size[_x_];
-//   const int register ysize = plane->size[_y_];
-//   const int register fsize = xsize + 2;
-//
-//   double *restrict data = plane->data;
-//
-// #define IDX(i, j) ((j) * fsize + (i))
-//
-// #if defined(LONG_ACCURACY)
-//   long double totenergy = 0;
-// #else
-//   double totenergy = 0;
-// #endif
-//
-//   for (int j = 1; j <= ysize; j++)
-//     for (int i = 1; i <= xsize; i++)
-//       totenergy += data[IDX(i, j)];
-//
-// #undef IDX
-//
-//   *energy = (double)totenergy;
-//   return 0;
-// }
