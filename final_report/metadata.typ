@@ -25,9 +25,9 @@
 // Metadata of the document
 //
 #let doc= (
-  title    : [*Report for Cloud Computing*],
+  title    : [*Report for High Performance Computing*],
   abbr     : "Prj",
-  subtitle : [_VMs and Containers benchmarking_],
+  subtitle : [_Implementation of Parallel Stencil Computation_],
   url      : "https://synd.hevs.io",
   logos: (
     // tp_topleft  : image("resources/img/synd.svg", height: 1.2cm),
@@ -55,11 +55,11 @@
     major       : "Data Science and Artificial Intelligence ",
   ),
   course: (
-    name     : "Cloud Computing",
-    url      : "https://github.com/Foundations-of-HPC/Cloud-basic-2024/tree/main",
-    prof     : "Giuliano Taffoni, Ruggero Lot, Stefano Alberto Russo",
+    name     : "High Performance Computing",
+    url      : "https://github.com/Foundations-of-HPC/High-Performance-Computing-2024",
+    prof     : "Stefano Cozzini, Luca Tornatore",
     // class    : [S1f$alpha$],
-    semester : "Fall Semester 2024/2025",
+    semester : "Spring Semester 2024/2025",
   ),
   // keywords : ("Typst", "Template", "Report", "HEI-Vs", "Systems Engineering", "Infotronics"),
   // version  : "v0.1.0",

@@ -105,7 +105,7 @@ void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
   // NOTE: For north and south we can copy continues memory directly starting
   // from the correct location
 
-  // Starting from the interal row so I have to move by 1 stride + 1
+  // Starting from the internal row so I have to move by 1 stride + 1
   // Fill NORTH send buffer (top internal row, j=1)
   memcpy(buffers[SEND][NORTH], &plane->data[1 * stride + 1],
          size_x * sizeof(double));
@@ -114,9 +114,13 @@ void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
   memcpy(buffers[SEND][SOUTH], &plane->data[size_y * stride + 1],
          size_x * sizeof(double));
 
-  buffers[RECV][NORTH] = &plane->data[0 * stride + 1]; // ghost row 0
-  buffers[RECV][SOUTH] =
-      &plane->data[(size_y + 1) * stride + 1]; // ghost row sy+1
+  // ghost row 0
+  buffers[RECV][NORTH] = &plane->data[0 * stride + 1];
+  // ghost row sy+1
+  buffers[RECV][SOUTH] = &plane->data[(size_y + 1) * stride + 1];
+
+  // NOTE: Perhaps here I should do it by thread so that they touch first the
+  // memory location
   //
   // Fill WEST send buffer (leftmost internal column, i=1)
   for (uint j = 0; j < size_y; j++) {
@@ -253,6 +257,7 @@ inline int update_plane_parallel(const int periodic,
       const double up = row_above[i];
       const double down = row_below[i];
 
+      // row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
       row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
     }
   }

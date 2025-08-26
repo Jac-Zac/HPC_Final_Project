@@ -28,9 +28,8 @@
 // Content
 //
 #include "/main/01-intro.typ"
-#include "/main/02-vm_setup.typ"
+#include "/main/02-code_optimization.typ"
 #include "/main/06-conclusion.typ"
-// #include "/main/to_know.typ"
 
 #heading(numbering:none, outlined: false)[] <sec:end>
 

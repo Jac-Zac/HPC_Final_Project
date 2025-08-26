@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
     MPI_Abort(my_COMM_WORLD, 1);
   }
 
-  // Synchronize all ranks before starting the timer
+  // Synchronize all ranks before starting the timer for better reproducibility
   MPI_Barrier(my_COMM_WORLD);
 
   double total_start_time = MPI_Wtime();

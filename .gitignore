@@ -39,6 +39,5 @@ stencil_parallel
 **/*.svg
 
 # Project-specific
-**/main
 **/data/*
 ./Introduction_to_AI/aima-python/*
