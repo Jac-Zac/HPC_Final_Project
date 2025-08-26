@@ -227,9 +227,9 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
 }
 
 // replace your update_plane with this version
-int update_plane_parallel(const int periodic,
-                          const vec2_t N, // MPI grid of ranks
-                          const plane_t *oldplane, plane_t *newplane) {
+inline int update_plane_parallel(const int periodic,
+                                 const vec2_t N, // MPI grid of ranks
+                                 const plane_t *oldplane, plane_t *newplane) {
 
   const uint f_xsize = oldplane->size[_x_] + 2;
   const uint xsize = oldplane->size[_x_];

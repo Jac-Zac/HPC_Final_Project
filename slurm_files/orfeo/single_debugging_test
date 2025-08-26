@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --nodes=1                   # 1 node
-#SBATCH --ntasks=1                  # total MPI tasks across nodes
-#SBATCH --ntasks-per-node=1         # 4 MPI tasks on the node
-#SBATCH --cpus-per-task=1           # 8 OpenMP threads per MPI task
+#SBATCH --ntasks=12                  # total MPI tasks across nodes
+#SBATCH --ntasks-per-node=12         # 4 MPI tasks on the node
+#SBATCH --cpus-per-task=2           # 8 OpenMP threads per MPI task
 #SBATCH --mem=0                     # use all available memory
 #SBATCH --partition=THIN
 #SBATCH -t 00:00:30                 # 5 minutes
@@ -36,4 +36,4 @@ echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 make MODE=parallel LOG=0
 
 # Run the code using mpirun
-mpirun -np ${TOTAL_MPI_TASKS} ${EXEC} ${ARGS} > orfeo_output.log
+mpirun -np ${TOTAL_MPI_TASKS} ${EXEC} ${ARGS} > ${TOTAL_MPI_TASKS}_mpi_${OMP_NUM_THREADS}_threads.log
