@@ -114,7 +114,8 @@ inline int update_plane(const int periodic, const uint size[2],
 
 // NOTE: loop unrolling doesn't seem to increase performance
 // #pragma omp parallel for collapse(2)
-#pragma omp parallel for schedule(guided)
+// #pragma omp parallel for schedule(guided)
+#pragma omp parallel for schedule(static)
   for (int j = 1; j <= y_size; j++) {
     const double *row_above = old_points + (j - 1) * f_xsize;
     const double *row_center = old_points + j * f_xsize;
