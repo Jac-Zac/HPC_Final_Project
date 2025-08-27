@@ -39,5 +39,4 @@ stencil_parallel
 **/*.svg
 
 # Project-specific
-**/data/*
-./Introduction_to_AI/aima-python/*
+access_cineca.sh
