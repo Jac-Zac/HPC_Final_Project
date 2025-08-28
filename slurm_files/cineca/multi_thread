@@ -1,0 +1,45 @@
+#!/bin/bash
+#SBATCH --nodes=1                   # 1 node
+#SBATCH --ntasks-per-node=1         # 4 MPI tasks on the node
+#SBATCH --cpus-per-task=16           # 8 OpenMP threads per MPI task
+#SBATCH --mem=0                     # use all available memory
+#SBATCH --partition dcgp_usr_prod
+#SBATCH -A uTS25_Tornator_0
+#SBATCH -t 00:00:30
+#SBATCH --job-name=stencil_test
+#SBATCH --exclusive                 # Get exclusive access to benchmark
+
+# Set the executable name
+EXEC=./stencil_serial
+
+# =======================================================
+# Set OpenMP environment variables
+# export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_PLACES=cores
+export OMP_PROC_BIND=close
+
+# Log informations on cpu placements
+export OMP_DISPLAY_ENV=VERBOSE
+export OMP_DISPLAY_AFFINITY=TRUE
+
+lscpu -e > cpu_layout.log
+
+# Loading necessary module
+module load openmpi/4.1.6--gcc--12.2.0
+
+# Set the total number of MPI tasks
+TOTAL_MPI_TASKS=${SLURM_NTASKS}
+
+# Define the arguments for the executable
+# A medium-sized grid suitable for a single-node run
+ARGS="-x 10000 -y 10000 -n 100 -o 0"
+
+# Compiling with logging the serial version
+make MODE=serial LOG=0
+
+for threads in 1 2 4 8 16
+do
+        export OMP_NUM_THREADS=$threads
+        echo "Running with $threads threads..."
+        ${EXEC} ${ARGS} > run_${threads}_threads.log
+done
