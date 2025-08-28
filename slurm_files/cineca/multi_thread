@@ -22,7 +22,7 @@ export OMP_PROC_BIND=close
 export OMP_DISPLAY_ENV=VERBOSE
 export OMP_DISPLAY_AFFINITY=TRUE
 
-lscpu -e > cpu_layout.log
+lscpu > cpu_layout.log
 
 # Loading necessary module
 module load openmpi/4.1.6--gcc--12.2.0
