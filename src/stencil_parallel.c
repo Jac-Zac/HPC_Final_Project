@@ -660,15 +660,13 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   unsigned int frame_size =
       (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
 
-  // planes_ptr[OLD].data = (double *)malloc(frame_size * sizeof(double));
-  planes_ptr[OLD].data = aligned_alloc(64, frame_size * sizeof(double));
+  planes_ptr[OLD].data = (double *)malloc(frame_size * sizeof(double));
   if (planes_ptr[OLD].data == NULL)
     // manage the malloc fail
     return -1;
   memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
 
-  // planes_ptr[NEW].data = (double *)malloc(frame_size * sizeof(double));
-  planes_ptr[NEW].data = aligned_alloc(64, frame_size * sizeof(double));
+  planes_ptr[NEW].data = (double *)malloc(frame_size * sizeof(double));
   if (planes_ptr[NEW].data == NULL)
     // manage the malloc fail
     return -2;
