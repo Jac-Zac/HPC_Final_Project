@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --nodes=1
-#SBATCH --ntasks=1                # Only one task for pure OpenMP
-#SBATCH --cpus-per-task=64        # Max threads per node
+#SBATCH --ntasks=1                 # only 1 MPI rank
+#SBATCH --cpus-per-task=64         # allow up to 64 threads
 #SBATCH --mem=0
-#SBATCH --partition=GENOA
+#SBATCH --partition=THIN
 #SBATCH -t 00:05:00
 #SBATCH --exclusive
-#SBATCH --job-name=stencil_scaling
+#SBATCH --job-name=stencil_scaling_openmp
 
 EXEC=./stencil_parallel
 ARGS="-x 5000 -y 5000 -n 100 -o 0"
@@ -30,8 +30,8 @@ do
 
     OUTPUT=$(mktemp)
 
-    # Run the executable (no mpirun)
-    $EXEC $ARGS > $OUTPUT
+    # Run with 1 MPI rank, giving it $THREADS cores
+    mpirun -np 1 --map-by ppr:1:node:pe=$THREADS --bind-to core $EXEC $ARGS > $OUTPUT
 
     # Extract values from output log
     TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')

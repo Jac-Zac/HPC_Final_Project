@@ -91,7 +91,7 @@ inline int inject_energy(const int periodic, const int Nsources,
   return 0;
 }
 
-#define PREFETCHING
+// #define PREFETCHING
 #ifndef PREFETCHING
 /*
  * calculate the new energy values
