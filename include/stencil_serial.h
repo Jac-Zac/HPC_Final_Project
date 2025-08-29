@@ -91,7 +91,7 @@ inline int inject_energy(const int periodic, const int Nsources,
   return 0;
 }
 
-#define PREFETCHING
+// #define PREFETCHING
 #ifndef PREFETCHING
 /*
  * calculate the new energy values
@@ -110,7 +110,7 @@ inline int update_plane(const int periodic, const uint size[2],
   const int y_size = size[_y_];
 
   // Pre-compute constants to avoid repeated calculations
-  const double alpha = 0.6;
+  const double alpha = 0.5;
   const double beta = (1.0 - alpha) * 0.25; // (1-alpha)/4
 
 // NOTE: loop unrolling doesn't seem to increase performance
@@ -212,7 +212,7 @@ inline int update_plane(const int periodic, const uint size[2],
   const int x_size = size[_x_];
   const int y_size = size[_y_];
 
-  const double alpha = 0.6;
+  const double alpha = 0.5;
   const double beta = (1.0 - alpha) * 0.25;
 
   // Choose a block size for y (tune experimentally: 16, 32, 64 etc.)

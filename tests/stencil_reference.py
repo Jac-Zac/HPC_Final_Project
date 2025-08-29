@@ -26,7 +26,7 @@ def update_plane(periodic, old_grid):
     ny, nx = old_grid.shape  # (rows, cols)
     new_grid = old_grid.copy()
 
-    alpha = 0.6
+    alpha = 0.5
     beta = (1.0 - alpha) * 0.25
 
     # interior update (1..ysize, 1..xsize)

@@ -7,8 +7,8 @@ CC = gcc
 MPICC = mpicc
 
 # Compilation flags
-# CFLAGS = -O1 -Wall -Wextra -fopenmp -Iinclude -fno-tree-vectorize
-CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude -g
+# CFLAGS = -O1 -Wall -Wextra -fopenmp -Iinclude -fno-tree-vectorize -g
+CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude
 
 # Source files
 PARALLEL_SRC = src/stencil_parallel.c
@@ -36,6 +36,7 @@ $(BASENAME):
 	$(MPICC) $(CFLAGS) $(SRC) -o $(BASENAME)
 
 test: all
+	mpirun -np 4 stencil_parallel -x 100 -y 100 -n 50 -o 1 -e 4 -s 1337                                                                                                  1m 4s 
 	pytest -v tests
 	rm -f stencil_parallel stencil_serial *.bin
 
