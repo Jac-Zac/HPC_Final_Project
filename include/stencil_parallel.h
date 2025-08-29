@@ -56,6 +56,8 @@ extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 extern int update_plane(const int, const vec2_t, const plane_t *, plane_t *);
 extern int update_plane_parallel(const int, const vec2_t, const plane_t *,
                                  plane_t *);
+extern int update_plane_parallel_tiling(const int, const vec2_t,
+                                        const plane_t *, plane_t *);
 
 extern int get_total_energy(plane_t *, double *);
 
@@ -228,6 +230,76 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
     return rc;
 
   return MPI_SUCCESS;
+}
+
+inline int update_plane_parallel_tiling(const int periodic,
+                                        const vec2_t N, // MPI grid of ranks
+                                        const plane_t *oldplane,
+                                        plane_t *newplane) {
+
+  const uint f_xsize = oldplane->size[_x_] + 2;
+  const uint xsize = oldplane->size[_x_];
+  const uint ysize = oldplane->size[_y_];
+
+  double *restrict newp = newplane->data;
+  const double *restrict oldp = oldplane->data;
+
+  const double c_center = 0.5;
+  const double c_neigh = 0.125;
+
+  // Block size: tune based on L2/L3 cache size
+  const uint BS_X = 128;
+  const uint BS_Y = 128;
+
+#pragma omp parallel for schedule(static)
+  for (uint jj = 1; jj <= ysize; jj += BS_Y) {
+    for (uint ii = 1; ii <= xsize; ii += BS_X) {
+
+      uint jmax = (jj + BS_Y - 1 <= ysize) ? jj + BS_Y - 1 : ysize;
+      uint imax = (ii + BS_X - 1 <= xsize) ? ii + BS_X - 1 : xsize;
+
+      for (uint j = jj; j <= jmax; ++j) {
+        const double *row_above = oldp + (j - 1) * f_xsize;
+        const double *row_center = oldp + j * f_xsize;
+        const double *row_below = oldp + (j + 1) * f_xsize;
+        double *row_new = newp + j * f_xsize;
+
+        for (uint i = ii; i <= imax; ++i) {
+          const double center = row_center[i];
+          const double left = row_center[i - 1];
+          const double right = row_center[i + 1];
+          const double up = row_above[i];
+          const double down = row_below[i];
+
+          row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
+        }
+      }
+    }
+  }
+
+  // Periodic boundaries (unchanged)
+  if (periodic) {
+    if (N[_x_] == 1) {
+      for (uint j = 1; j <= ysize; ++j) {
+        double *row = newp + j * f_xsize;
+        row[0] = row[xsize];
+        row[xsize + 1] = row[1];
+      }
+    }
+    if (N[_y_] == 1) {
+      double *row_top = newp + 1 * f_xsize;
+      double *row_bottom = newp + ysize * f_xsize;
+      double *row_topghost = newp + 0 * f_xsize;
+      double *row_bottomghost = newp + (ysize + 1) * f_xsize;
+
+      for (uint i = 1; i <= xsize; ++i) {
+        row_topghost[i] = row_bottom[i];
+        row_bottomghost[i] = row_top[i];
+      }
+    }
+  }
+
+  return 0;
 }
 
 // replace your update_plane with this version

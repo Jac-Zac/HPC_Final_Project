@@ -120,7 +120,9 @@ int main(int argc, char **argv) {
 
     // update grid points
     // update_plane(periodic, N, &planes[current], &planes[!current]);
-    update_plane_parallel(periodic, N, &planes[current], &planes[!current]);
+    // update_plane_parallel(periodic, N, &planes[current], &planes[!current]);
+    update_plane_parallel_tiling(periodic, N, &planes[current],
+                                 &planes[!current]);
 
     comp_times[iter] = MPI_Wtime() - t_comp_start;
 
