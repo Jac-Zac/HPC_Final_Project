@@ -56,8 +56,8 @@ extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 extern int update_plane(const int, const vec2_t, const plane_t *, plane_t *);
 extern int update_plane_parallel(const int, const vec2_t, const plane_t *,
                                  plane_t *);
-extern int update_plane_parallel_tiling(const int, const vec2_t,
-                                        const plane_t *, plane_t *);
+extern int update_plane_parallel_patches(const int, const vec2_t,
+                                         const plane_t *, plane_t *, int);
 
 extern int get_total_energy(plane_t *, double *);
 
@@ -232,11 +232,13 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
   return MPI_SUCCESS;
 }
 
-inline int update_plane_parallel_tiled(const int periodic, const vec2_t N,
-                                       const plane_t *oldplane,
-                                       plane_t *newplane) {
-
-  const uint f_xsize = oldplane->size[0] + 2; // padded x-size
+// replace your update_plane with this version
+inline int update_plane_parallel_patches(const int periodic, const vec2_t N,
+                                         const plane_t *oldplane,
+                                         plane_t *newplane,
+                                         int nthreads) // pass number of
+{
+  const uint f_xsize = oldplane->size[0] + 2;
   const uint xsize = oldplane->size[0];
   const uint ysize = oldplane->size[1];
 
@@ -246,49 +248,38 @@ inline int update_plane_parallel_tiled(const int periodic, const vec2_t N,
   const double c_center = 0.5;
   const double c_neigh = 0.125;
 
-  // Tile size: tune for your L2/L3 cache
-  const uint BS_X = 256;
-  const uint BS_Y = 256;
+#pragma omp parallel num_threads(nthreads)
+  {
+    int tid = omp_get_thread_num();
+    uint j_start = 1 + tid * ysize / nthreads;
+    uint j_end = 1 + (tid + 1) * ysize / nthreads - 1;
 
-// --- Tile-based stencil update with OpenMP collapse ---
-#pragma omp parallel for collapse(2) schedule(static)
-  for (uint jj = 1; jj <= ysize; jj += BS_Y) {
-    for (uint ii = 1; ii <= xsize; ii += BS_X) {
+    for (uint j = j_start; j <= j_end; ++j) {
+      const double *row_above = oldp + (j - 1) * f_xsize;
+      const double *row_center = oldp + j * f_xsize;
+      const double *row_below = oldp + (j + 1) * f_xsize;
+      double *row_new = newp + j * f_xsize;
 
-      uint jmax = (jj + BS_Y - 1 <= ysize) ? jj + BS_Y - 1 : ysize;
-      uint imax = (ii + BS_X - 1 <= xsize) ? ii + BS_X - 1 : xsize;
-
-      for (uint j = jj; j <= jmax; ++j) {
-        const double *row_above = oldp + (j - 1) * f_xsize;
-        const double *row_center = oldp + j * f_xsize;
-        const double *row_below = oldp + (j + 1) * f_xsize;
-        double *row_new = newp + j * f_xsize;
-
-// Vectorized inner loop
 #pragma omp simd
-        for (uint i = ii; i <= imax; ++i) {
-          row_new[i] = row_center[i] * c_center +
-                       (row_center[i - 1] + row_center[i + 1] + row_above[i] +
-                        row_below[i]) *
-                           c_neigh;
-        }
+      for (uint i = 1; i <= xsize; ++i) {
+        row_new[i] =
+            row_center[i] * c_center + (row_center[i - 1] + row_center[i + 1] +
+                                        row_above[i] + row_below[i]) *
+                                           c_neigh;
       }
     }
   }
 
-  // --- Periodic boundary propagation ---
+  // --- Periodic boundaries ---
   if (periodic) {
-    // X-direction
-    if (N[0] == 1) {
+    if (N[0] == 1) { // X-direction
       for (uint j = 1; j <= ysize; ++j) {
         double *row = newp + j * f_xsize;
-        row[0] = row[xsize];     // left ghost
-        row[xsize + 1] = row[1]; // right ghost
+        row[0] = row[xsize];
+        row[xsize + 1] = row[1];
       }
     }
-
-    // Y-direction
-    if (N[1] == 1) {
+    if (N[1] == 1) { // Y-direction
       double *row_top = newp + 1 * f_xsize;
       double *row_bottom = newp + ysize * f_xsize;
       double *row_topghost = newp + 0 * f_xsize;

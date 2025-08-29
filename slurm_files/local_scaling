@@ -1,6 +1,6 @@
 #!/bin/bash
 
-EXEC=./stencil_serial
+EXEC="mpirun -np 1 stencil_parallel"
 ARGS="-x 10000 -y 10000 -n 100 -o 0"
 
 # Output summary file

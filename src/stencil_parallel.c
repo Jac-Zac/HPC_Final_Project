@@ -73,6 +73,15 @@ int main(int argc, char **argv) {
   // Synchronize all ranks before starting the timer for better reproducibility
   MPI_Barrier(my_COMM_WORLD);
 
+  int num_threads = 0;
+#pragma omp parallel
+  {
+#pragma omp single
+    {
+      num_threads = omp_get_num_threads();
+    }
+  }
+
   double total_start_time = MPI_Wtime();
   int current = OLD;
   for (int iter = 0; iter < Niterations; ++iter) {
@@ -119,10 +128,9 @@ int main(int argc, char **argv) {
     t_comp_start = MPI_Wtime();
 
     // update grid points
-    // update_plane(periodic, N, &planes[current], &planes[!current]);
-    // update_plane_parallel(periodic, N, &planes[current], &planes[!current]);
-    update_plane_parallel_tiling(periodic, N, &planes[current],
-                                 &planes[!current]);
+    update_plane_parallel(periodic, N, &planes[current], &planes[!current]);
+    // update_plane_parallel_patches(periodic, N, &planes[current],
+    //                               &planes[!current], num_threads);
 
     comp_times[iter] = MPI_Wtime() - t_comp_start;
 
