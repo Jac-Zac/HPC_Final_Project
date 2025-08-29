@@ -126,10 +126,14 @@ int main(int argc, char **argv) {
 
     /* ------------------------- */
     // output if needed
-    if (output_energy_stat_per_step)
+    if (output_energy_stat_per_step) {
       output_energy_stat(iter, &planes[!current],
                          (iter + 1) * Nsources * energy_per_source, Rank,
                          &my_COMM_WORLD);
+      char filename[128];
+      sprintf(filename, "plane_%05d", iter);
+      dump_parallel(&planes[!current], planes[!current].size, filename, Rank);
+    }
 
     // swap plane indexes for the new iteration
     current = !current;
@@ -745,5 +749,38 @@ int output_energy_stat(int step, plane_t *plane, double budget, int Me,
            tot_system_energy / (plane->size[_x_] * plane->size[_y_]));
   }
 
+  return 0;
+}
+
+int dump_parallel(const plane_t *plane, const uint size[2],
+                  const char *filename, int Rank) {
+  if ((filename == NULL) || (filename[0] == '\0'))
+    return 1;
+
+  // Generate a file per rank
+  char local_filename[128];
+  snprintf(local_filename, sizeof(local_filename), "%s_rank%03d.bin", filename,
+           Rank);
+
+  FILE *outfile = fopen(local_filename, "wb");
+  if (outfile == NULL)
+    return 2;
+
+  float *array = (float *)malloc(size[0] * sizeof(float));
+  if (!array) {
+    fclose(outfile);
+    return 3;
+  }
+
+  for (uint j = 0; j < size[1]; j++) {
+    const double *restrict line =
+        plane->data + (j + 1) * (size[0] + 2) + 1; // skip halo
+    for (uint i = 0; i < size[0]; i++)
+      array[i] = (float)line[i];
+    fwrite(array, sizeof(float), size[0], outfile);
+  }
+
+  free(array);
+  fclose(outfile);
   return 0;
 }

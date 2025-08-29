@@ -67,6 +67,9 @@ int memory_release(plane_t *, buffers_t *);
 
 int output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 
+int dump_parallel(const plane_t *plane, const uint size[2],
+                  const char *filename, int Rank);
+
 inline void inject_energy(const int periodic, const int Nsources,
                           const vec2_t *Sources, const double energy,
                           plane_t *plane, const vec2_t N) {
@@ -78,6 +81,13 @@ inline void inject_energy(const int periodic, const int Nsources,
   for (int s = 0; s < Nsources; s++) {
     int x = Sources[s][_x_];
     int y = Sources[s][_y_];
+    // NOTE: TMP source print
+    // printf("Source %d position: (%d, %d)\n", s, x, y); // Added print
+    // Seed 1337
+    // Source 0 position: (700, 804)
+    // Source 1 position: (625, 388)
+    // Source 2 position: (526, 493)
+    // Source 3 position: (87, 585)
 
     data[IDX(x, y)] += energy;
 

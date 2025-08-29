@@ -15,10 +15,10 @@ def _ideal_time_curve(tasks, baseline_tasks, baseline_time):
 def _plot_comparison_with_ideal(
     mpi_data=None, openmp_data=None, ylabel="", title="", logy=True
 ):
-    """Compare scaling curves with ideal lines. Supports MPI, OpenMP, or both."""
+    """Compare scaling curves with ideal lines. Use log-log for time plots."""
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    plotted = False  # track whether we actually plotted something
+    plotted = False
 
     if mpi_data is not None and not mpi_data["values"].dropna().empty:
         mpi_tasks = mpi_data["Tasks"].to_list()
@@ -68,24 +68,26 @@ def _plot_comparison_with_ideal(
             )
             plotted = True
 
+    if not plotted:
+        return
+
     ax.set_xscale("log", base=2)
 
-    # Only apply logy if we actually plotted valid positive values
+    # Only use log y-axis for time plots (where it makes sense)
     if logy and plotted:
         ax.set_yscale("log")
 
-    ax.set_xlabel("Number of Tasks/Threads (log2)")
+    ax.set_xlabel("Number of Tasks/Threads (log₂)")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
-    if plotted:
-        ax.legend()
+    ax.legend()
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
 
 
 def _plot_speedup_comparison(mpi_data=None, openmp_data=None):
-    """Compare speedup for MPI vs OpenMP with ideal speedup. Supports MPI, OpenMP, or both."""
+    """Compare speedup for MPI vs OpenMP with ideal speedup."""
     if mpi_data is None and openmp_data is None:
         return
 
@@ -137,8 +139,10 @@ def _plot_speedup_comparison(mpi_data=None, openmp_data=None):
             color="red",
         )
 
+    # Log-log makes sense for speedup - both axes have wide ranges
     ax.set_xscale("log", base=2)
-    ax.set_xlabel("Number of Tasks/Threads (log2)")
+    ax.set_yscale("log")
+    ax.set_xlabel("Number of Tasks/Threads (log₂)")
     ax.set_ylabel("Speedup (×)")
     ax.set_title("Strong Scaling: Speedup Comparison")
     ax.legend()
@@ -148,7 +152,7 @@ def _plot_speedup_comparison(mpi_data=None, openmp_data=None):
 
 
 def _plot_efficiency_comparison(mpi_data=None, openmp_data=None):
-    """Compare efficiency for MPI vs OpenMP. Supports MPI, OpenMP, or both."""
+    """Compare efficiency for MPI vs OpenMP. Linear y-axis for percentages."""
     if mpi_data is None and openmp_data is None:
         return
 
@@ -189,8 +193,10 @@ def _plot_efficiency_comparison(mpi_data=None, openmp_data=None):
     ax.axhline(
         100.0, linestyle="--", alpha=0.7, label="Ideal Efficiency (100%)", color="black"
     )
+
+    # Efficiency: linear y-axis makes most sense (0-100%)
     ax.set_xscale("log", base=2)
-    ax.set_xlabel("Number of Tasks/Threads (log2)")
+    ax.set_xlabel("Number of Tasks/Threads (log₂)")
     ax.set_ylabel("Parallel Efficiency (%)")
     ax.set_title("Strong Scaling: Efficiency Comparison")
     ax.legend()
@@ -262,9 +268,9 @@ def plot_scaling_comparison(mpi_file=None, openmp_file=None):
     if mpi_data is None and openmp_data is None:
         raise ValueError("No data provided: need at least MPI or OpenMP file.")
 
-    # --- Plots (skip if both datasets missing the required metric) ---
+    print("\n=== SUMMARY STATISTICS ===")
 
-    # 1) Total Time
+    # 1) Total Time - usually benefits from log-log
     mpi_total = mpi_data.copy() if mpi_data is not None else None
     if mpi_total is not None:
         mpi_total["values"] = mpi_total["TotalTime"]
@@ -292,7 +298,7 @@ def plot_scaling_comparison(mpi_file=None, openmp_file=None):
             title="Computation Time Scaling",
         )
 
-    # 3) Max Communication Time
+    # 3) Max Communication Time - linear y-axis shows overhead growth
     if (mpi_data is not None and "MaxCommTime" in mpi_data.columns) or (
         openmp_data is not None and "MaxCommTime" in openmp_data.columns
     ):
@@ -307,6 +313,7 @@ def plot_scaling_comparison(mpi_file=None, openmp_file=None):
             openmp_comm,
             ylabel="Max Communication Time (s)",
             title="Communication Time Scaling",
+            logy=False,  # Linear y-axis shows communication overhead better
         )
 
     # 4) Energy Computation Time
@@ -326,10 +333,10 @@ def plot_scaling_comparison(mpi_file=None, openmp_file=None):
             title="Energy Time Scaling",
         )
 
-    # 5) Speedup
+    # 5) Speedup - smart log scaling
     _plot_speedup_comparison(mpi_data, openmp_data)
 
-    # 6) Efficiency
+    # 6) Efficiency - always linear y-axis
     _plot_efficiency_comparison(mpi_data, openmp_data)
 
     # --- Summary ---
