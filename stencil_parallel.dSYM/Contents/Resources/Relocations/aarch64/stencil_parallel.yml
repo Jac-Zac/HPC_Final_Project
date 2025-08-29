@@ -1,0 +1,20 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     stencil_parallel
+relocations:
+  - { offset: 0x56C, size: 0x8, addend: 0x0, symName: _output_energy_stat, symObjAddr: 0x16E0, symBinAddr: 0x100001DA0, symSize: 0x104 }
+  - { offset: 0x652, size: 0x8, addend: 0x0, symName: _memory_release, symObjAddr: 0x166C, symBinAddr: 0x100001D2C, symSize: 0x74 }
+  - { offset: 0x710, size: 0x8, addend: 0x0, symName: _initialize_sources, symObjAddr: 0xC08, symBinAddr: 0x1000012C8, symSize: 0x220 }
+  - { offset: 0x8E0, size: 0x8, addend: 0x0, symName: _initialize, symObjAddr: 0xE28, symBinAddr: 0x1000014E8, symSize: 0x820 }
+  - { offset: 0xC23, size: 0x8, addend: 0x0, symName: _main, symObjAddr: 0x1C40, symBinAddr: 0x100001EC0, symSize: 0x8C8 }
+  - { offset: 0x10A0, size: 0x8, addend: 0x0, symName: _update_plane, symObjAddr: 0xA00, symBinAddr: 0x1000010C0, symSize: 0xC0 }
+  - { offset: 0x1250, size: 0x8, addend: 0x0, symName: _fill_send_buffers, symObjAddr: 0x560, symBinAddr: 0x100000C20, symSize: 0xF0 }
+  - { offset: 0x138C, size: 0x8, addend: 0x0, symName: _memory_allocate.part.0, symObjAddr: 0x38C, symBinAddr: 0x100000A4C, symSize: 0xF4 }
+  - { offset: 0x13DB, size: 0x8, addend: 0x0, symName: _inject_energy, symObjAddr: 0x480, symBinAddr: 0x100000B40, symSize: 0xE0 }
+  - { offset: 0x1469, size: 0x8, addend: 0x0, symName: _copy_received_halos, symObjAddr: 0x650, symBinAddr: 0x100000D10, symSize: 0x94 }
+  - { offset: 0x14DC, size: 0x8, addend: 0x0, symName: _exchange_halos, symObjAddr: 0x6E4, symBinAddr: 0x100000DA4, symSize: 0x148 }
+  - { offset: 0x158F, size: 0x8, addend: 0x0, symName: _update_plane_parallel, symObjAddr: 0x82C, symBinAddr: 0x100000EEC, symSize: 0x1D4 }
+  - { offset: 0x1693, size: 0x8, addend: 0x0, symName: _get_total_energy, symObjAddr: 0xAC0, symBinAddr: 0x100001180, symSize: 0x60 }
+  - { offset: 0x16DE, size: 0x8, addend: 0x0, symName: _simple_factorization, symObjAddr: 0xB20, symBinAddr: 0x1000011E0, symSize: 0xE8 }
+  - { offset: 0x1735, size: 0x8, addend: 0x0, symName: _memory_allocate, symObjAddr: 0x1648, symBinAddr: 0x100001D08, symSize: 0x24 }
+...

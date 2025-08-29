@@ -8,7 +8,7 @@ MPICC = mpicc
 
 # Compilation flags
 # CFLAGS = -O1 -Wall -Wextra -fopenmp -Iinclude -fno-tree-vectorize -g
-CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude
+CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude -g
 
 # Source files
 PARALLEL_SRC = src/stencil_parallel.c
