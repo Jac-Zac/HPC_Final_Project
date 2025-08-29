@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
   for (int iter = 0; iter < Niterations; ++iter) {
     double t_comm_start, t_comp_start;
 
-    MPI_Request reqs[8];
+    // MPI_Request reqs[8];
 
     // new energy from sources
     inject_energy(periodic, Nsources_local, Sources_local, energy_per_source,
@@ -123,6 +123,7 @@ int main(int argc, char **argv) {
     update_plane_parallel(periodic, N, &planes[current], &planes[!current]);
 
     comp_times[iter] = MPI_Wtime() - t_comp_start;
+
     /* ------------------------- */
     // output if needed
     if (output_energy_stat_per_step)
@@ -134,7 +135,8 @@ int main(int argc, char **argv) {
     current = !current;
   }
 
-  MPI_Barrier(my_COMM_WORLD); // Synchronize before final timing
+  // Synchronize before final timing
+  MPI_Barrier(my_COMM_WORLD);
   double total_time = MPI_Wtime() - total_start_time;
 
   double total_comp_time_local = 0.0;
@@ -146,6 +148,8 @@ int main(int argc, char **argv) {
 
   double max_comp_time, max_comm_time;
 
+  // Reduce with MPI_MAX get the maximum computation time from all processes,
+  // storing the result in max_comp_time on the root process (rank 0).
   MPI_Reduce(&total_comp_time_local, &max_comp_time, 1, MPI_DOUBLE, MPI_MAX, 0,
              my_COMM_WORLD);
   MPI_Reduce(&total_comm_time_local, &max_comm_time, 1, MPI_DOUBLE, MPI_MAX, 0,

@@ -91,6 +91,7 @@ inline int inject_energy(const int periodic, const int Nsources,
   return 0;
 }
 
+#define PREFETCHING
 #ifndef PREFETCHING
 /*
  * calculate the new energy values
@@ -204,11 +205,16 @@ goes below zero energy alpha /= 2; } while (!done);
 
 #else
 
-// Strategy 3: Memory bandwidth reduction via computation reuse and memory
-// access
+// A macro for finding the minimum of two values, common in pure C
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+
+// A reasonable block size. This is a crucial tuning parameter!
+// A size of 32x32 doubles = 32 * 32 * 8 bytes = 8KB,
+// which fits comfortably in a typical 32KB L1 data cache.
+#define BLOCK_SIZE 16
+
 inline int update_plane(const int periodic, const uint size[2],
                         const double *old_points, double *new_points) {
-
   const int f_xsize = size[_x_] + 2;
   const int x_size = size[_x_];
   const int y_size = size[_y_];
@@ -216,37 +222,86 @@ inline int update_plane(const int periodic, const uint size[2],
   const double alpha = 0.6;
   const double beta = (1.0 - alpha) * 0.25;
 
-#pragma omp parallel for schedule(guided)
-  for (int j = 1; j <= y_size; j++) {
-    const double *row_above = old_points + (j - 1) * f_xsize;
-    const double *row_center = old_points + j * f_xsize;
-    const double *row_below = old_points + (j + 1) * f_xsize;
+  // 1. Calculate the boundaries for the main work (full-sized tiles)
+  // This finds the largest coordinate that is a multiple of BLOCK_SIZE.
+  const int y_main_end = (y_size / BLOCK_SIZE) * BLOCK_SIZE;
+  const int x_main_end = (x_size / BLOCK_SIZE) * BLOCK_SIZE;
 
-    double *row_new = new_points + j * f_xsize;
-
-    // Temporary buffer for this row
-    double row_buffer[x_size + 2];
-
-    double prev_center = row_center[0]; // left ghost
-    for (int i = 1; i <= x_size; i++) {
-      double center = row_center[i];
-      double right = row_center[i + 1];
-
-      // Five-point stencil
-      row_buffer[i] = center * alpha + beta * (prev_center + right +
-                                               row_above[i] + row_below[i]);
-
-      prev_center = center;
-    }
-
-    // Write back in one shot
-    for (int i = 1; i <= x_size; i++) {
-      row_new[i] = row_buffer[i];
+  // =======================================================================
+  // 2. FAST PATH: Process the main body of full BLOCK_SIZE x BLOCK_SIZE tiles
+  // In this section, there are NO `min()` calls and NO `cmp` instructions
+  // for calculating loop bounds. The compiler knows the exact loop trip count.
+  // =======================================================================
+  for (int jj = 1; jj <= y_main_end; jj += BLOCK_SIZE) {
+    for (int ii = 1; ii <= x_main_end; ii += BLOCK_SIZE) {
+      // Process one full tile without any boundary checks
+      for (int j = jj; j < jj + BLOCK_SIZE; ++j) {
+        const double *row_above = old_points + (j - 1) * f_xsize;
+        const double *row_center = old_points + j * f_xsize;
+        const double *row_below = old_points + (j + 1) * f_xsize;
+        double *row_new = new_points + j * f_xsize;
+        for (int i = ii; i < ii + BLOCK_SIZE; ++i) {
+          const double center = row_center[i];
+          const double left = row_center[i - 1];
+          const double right = row_center[i + 1];
+          const double up = row_above[i];
+          const double down = row_below[i];
+          row_new[i] = center * alpha + beta * (left + right + up + down);
+        }
+      }
     }
   }
 
+  // =======================================================================
+  // 3. CLEANUP: Handle the remaining "fringe" tiles on the right and bottom
+  // This code is similar to the original but only runs for the edge cases.
+  // =======================================================================
+  // Process remaining tiles in the bottom fringe (all columns)
+  for (int jj = y_main_end + 1; jj <= y_size; jj += BLOCK_SIZE) {
+    for (int ii = 1; ii <= x_size; ii += BLOCK_SIZE) {
+      const int j_end = min(jj + BLOCK_SIZE, y_size + 1);
+      const int i_end = min(ii + BLOCK_SIZE, x_size + 1);
+      for (int j = jj; j < j_end; ++j) {
+        const double *row_above = old_points + (j - 1) * f_xsize;
+        const double *row_center = old_points + j * f_xsize;
+        const double *row_below = old_points + (j + 1) * f_xsize;
+        double *row_new = new_points + j * f_xsize;
+        for (int i = ii; i < i_end; ++i) {
+          row_new[i] = old_points[j * f_xsize + i] * alpha +
+                       beta * (old_points[j * f_xsize + i - 1] +
+                               old_points[j * f_xsize + i + 1] +
+                               old_points[(j - 1) * f_xsize + i] +
+                               old_points[(j + 1) * f_xsize + i]);
+        }
+      }
+    }
+  }
+
+  // Process remaining tiles in the right fringe (only for the main body rows)
+  for (int jj = 1; jj <= y_main_end; jj += BLOCK_SIZE) {
+    for (int ii = x_main_end + 1; ii <= x_size; ii += BLOCK_SIZE) {
+      const int j_end = min(jj + BLOCK_SIZE, y_size + 1);
+      const int i_end = min(ii + BLOCK_SIZE, x_size + 1);
+      for (int j = jj; j < j_end; ++j) {
+        const double *row_above = old_points + (j - 1) * f_xsize;
+        const double *row_center = old_points + j * f_xsize;
+        const double *row_below = old_points + (j + 1) * f_xsize;
+        double *row_new = new_points + j * f_xsize;
+        for (int i = ii; i < i_end; ++i) {
+          row_new[i] = old_points[j * f_xsize + i] * alpha +
+                       beta * (old_points[j * f_xsize + i - 1] +
+                               old_points[j * f_xsize + i + 1] +
+                               old_points[(j - 1) * f_xsize + i] +
+                               old_points[(j + 1) * f_xsize + i]);
+        }
+      }
+    }
+  }
+
+  /* Periodic boundary update logic remains the same */
   // Periodic boundary propagation
   if (periodic) {
+    // Top & bottom wrap
     double *row_top = new_points + 1 * f_xsize;
     double *row_bottom = new_points + y_size * f_xsize;
     double *row_topghost = new_points + 0 * f_xsize;
@@ -257,15 +312,20 @@ inline int update_plane(const int periodic, const uint size[2],
       row_bottomghost[i] = row_top[i];
     }
 
+    // Left & right wrap
     for (int j = 1; j <= y_size; j++) {
       double *row = new_points + j * f_xsize;
-      row[0] = row[x_size];
-      row[x_size + 1] = row[1];
+      row[0] = row[x_size];     // left ghost = right boundary
+      row[x_size + 1] = row[1]; // right ghost = left boundary
     }
   }
 
   return 0;
 }
+
+// Don't forget to undefine the macro if it's in a header file
+// to avoid potential conflicts with other code.
+#undef min
 
 #endif
 
