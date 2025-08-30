@@ -1,45 +1,57 @@
 #!/bin/bash
-#SBATCH --nodes=1                   # 1 node
-#SBATCH --ntasks-per-node=1         # 4 MPI tasks on the node
-#SBATCH --cpus-per-task=16           # 8 OpenMP threads per MPI task
-#SBATCH --mem=0                     # use all available memory
-#SBATCH --partition dcgp_usr_prod
+#SBATCH --nodes=1
+#SBATCH --ntasks=1                 # only 1 MPI rank
+#SBATCH --cpus-per-task=32         # up to 32 OpenMP threads
+#SBATCH --mem=0
+#SBATCH --partition=dcgp_usr_prod
 #SBATCH -A uTS25_Tornator_0
 #SBATCH -t 00:00:30
-#SBATCH --job-name=stencil_test
-#SBATCH --exclusive                 # Get exclusive access to benchmark
+#SBATCH --exclusive
+#SBATCH --job-name=stencil_scaling_openmp
 
-# Set the executable name
-EXEC=./stencil_serial
-
-# =======================================================
-# Set OpenMP environment variables
-# export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
-export OMP_PLACES=cores
-export OMP_PROC_BIND=close
-
-# Log informations on cpu placements
-export OMP_DISPLAY_ENV=VERBOSE
-export OMP_DISPLAY_AFFINITY=TRUE
-
-lscpu > cpu_layout.log
-
-# Loading necessary module
-module load openmpi/4.1.6--gcc--12.2.0
-
-# Set the total number of MPI tasks
-TOTAL_MPI_TASKS=${SLURM_NTASKS}
-
-# Define the arguments for the executable
-# A medium-sized grid suitable for a single-node run
+EXEC=./stencil_parallel
 ARGS="-x 10000 -y 10000 -n 100 -o 0"
 
-# Compiling with logging the serial version
-make MODE=serial LOG=0
+# Output summary file
+RESULTS_FILE=openmp_scaling.txt
+echo "Threads,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
-for threads in 1 2 4 8 16
+# Load module
+module load openmpi/4.1.6--gcc--12.2.0
+
+# Compile OpenMP version
+make MODE=parallel LOG=0
+
+# Loop over thread counts
+for THREADS in 1 2 4 8 16 32
 do
-        export OMP_NUM_THREADS=$threads
-        echo "Running with $threads threads..."
-        ${EXEC} ${ARGS} > run_${threads}_threads.log
+    echo ">>> Running with $THREADS OpenMP threads"
+
+    # Set OpenMP environment variables
+    export OMP_NUM_THREADS=$THREADS
+    export OMP_PLACES=cores
+    export OMP_PROC_BIND=close
+    export OMP_DISPLAY_ENV=VERBOSE
+    export OMP_DISPLAY_AFFINITY=TRUE
+
+    # Log CPU layout only once
+    if [ "$THREADS" -eq 1 ]; then
+        lscpu > cpu_layout.log
+    fi
+
+    OUTPUT=$(mktemp)
+
+    # Run with 1 MPI rank, assigning $THREADS cores
+    mpirun -np 1 --map-by ppr:1:node:pe=$THREADS --bind-to core $EXEC $ARGS > $OUTPUT
+
+    # Extract values from output log
+    TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
+    MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
+    MAX_COMM=$(grep "Max communication time" $OUTPUT | awk '{print $6}')
+    ENERGY_TIME=$(grep "Total energy computaton time" $OUTPUT | awk '{print $5}')
+
+    # Append to results file
+    echo "$THREADS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
+
+    rm $OUTPUT
 done
