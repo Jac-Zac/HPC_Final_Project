@@ -232,6 +232,7 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
 }
 
 // replace your update_plane with this version
+
 inline int update_plane(const int periodic,
                         const vec2_t N, // MPI grid of ranks
                         const plane_t *oldplane, plane_t *newplane) {
@@ -247,7 +248,7 @@ inline int update_plane(const int periodic,
   const double c_center = 0.5;  // = 1/2
   const double c_neigh = 0.125; // = 1/8
 
-#define TILE_SIZE 32
+  // #define TILE_SIZE 32
 
 #ifndef TILE_SIZE
 
@@ -282,37 +283,36 @@ inline int update_plane(const int periodic,
 
 #else
 
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
-
-#pragma omp parallel for schedule(static)
-  for (uint j = 1; j <= ysize; j += TILE_SIZE) {
-    for (uint i = 1; i <= xsize; i += TILE_SIZE) {
+// #pragma omp parallel for schedule(static) collapse(2)
+#pragma omp parallel for schedule(dynamic) collapse(2)
+  for (uint jb = 1; jb <= ysize; jb += TILE_SIZE) {
+    for (uint ib = 1; ib <= xsize; ib += TILE_SIZE) {
       // Process a tile of size TILE_SIZE x TILE_SIZE
-      const uint j_end = MIN(j + TILE_SIZE, ysize + 1);
-      const uint i_end = MIN(i + TILE_SIZE, xsize + 1);
 
-      for (uint jj = j; jj < j_end; ++jj) {
-        const double *row_above = oldp + (jj - 1) * f_xsize;
-        const double *row_center = oldp + jj * f_xsize;
-        const double *row_below = oldp + (jj + 1) * f_xsize;
-        double *row_new = newp + jj * f_xsize;
+      const uint je =
+          (jb + TILE_SIZE <= ysize + 1) ? jb + TILE_SIZE : ysize + 1;
+      const uint ie =
+          (ib + TILE_SIZE <= xsize + 1) ? ib + TILE_SIZE : xsize + 1;
 
-        // #pragma omp simd
-        for (uint ii = i; ii < i_end; ++ii) {
-          const double center = row_center[ii];
-          const double left = row_center[ii - 1];
-          const double right = row_center[ii + 1];
-          const double up = row_above[ii];
-          const double down = row_below[ii];
+      // Process block with good locality
+      for (uint j = jb; j < je; ++j) {
+        const double *row_above = oldp + (j - 1) * f_xsize;
+        const double *row_center = oldp + j * f_xsize;
+        const double *row_below = oldp + (j + 1) * f_xsize;
+        double *row_new = newp + j * f_xsize;
 
-          row_new[ii] =
-              center * c_center + (left + right + up + down) * c_neigh;
+#pragma omp simd
+        for (uint i = ib; i < ie; ++i) {
+          const double center = row_center[i];
+          const double left = row_center[i - 1];
+          const double right = row_center[i + 1];
+          const double up = row_above[i];
+          const double down = row_below[i];
+          row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
         }
       }
     }
   }
-
-#undef MIN
 
 #endif
 
