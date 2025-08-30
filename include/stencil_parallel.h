@@ -54,10 +54,6 @@ extern int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
 extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 
 extern int update_plane(const int, const vec2_t, const plane_t *, plane_t *);
-extern int update_plane_parallel(const int, const vec2_t, const plane_t *,
-                                 plane_t *);
-extern int update_plane_parallel_patches(const int, const vec2_t,
-                                         const plane_t *, plane_t *, int);
 
 extern int get_total_energy(plane_t *, double *);
 
@@ -142,7 +138,8 @@ void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
 void copy_received_halos(buffers_t buffers[2], plane_t *plane,
                          int *neighbours) {
   const uint size_y = plane->size[_y_];
-  const uint stride = plane->size[_x_] + 2;
+  const uint size_x = plane->size[_x_];
+  const uint stride = size_x + 2;
 
   // NORTH and SOUTH are already in place thanks to direct MPI_Recv.
   // We only need to unpack the non-contiguous columns.
@@ -157,7 +154,7 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
   // Copy EAST halo (from WEST neighbor)
   if (neighbours[EAST] != MPI_PROC_NULL) {
     for (uint j = 0; j < size_y; j++) {
-      plane->data[(j + 1) * stride + size_y + 1] = buffers[RECV][EAST][j];
+      plane->data[(j + 1) * stride + size_x + 1] = buffers[RECV][EAST][j];
     }
   }
 }
@@ -201,31 +198,33 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
 // NOTE: Tmp version to test things out
 int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
                    MPI_Comm *Comm, MPI_Status statuses[4]) {
-  const int TAG_NS = 0, TAG_EW = 1;
   int rc;
 
   rc = MPI_Sendrecv(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
-                    neighbours[NORTH], TAG_NS, buffers[RECV][NORTH], size[_x_],
-                    MPI_DOUBLE, neighbours[SOUTH], TAG_NS, *Comm, &statuses[0]);
+                    neighbours[NORTH], SOUTH, buffers[RECV][SOUTH], size[_x_],
+                    MPI_DOUBLE, neighbours[SOUTH], SOUTH, *Comm, &statuses[0]);
 
   if (rc != MPI_SUCCESS)
     return rc;
 
   rc = MPI_Sendrecv(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
-                    neighbours[SOUTH], TAG_NS, buffers[RECV][SOUTH], size[_x_],
-                    MPI_DOUBLE, neighbours[NORTH], TAG_NS, *Comm, &statuses[1]);
-  if (rc != MPI_SUCCESS)
-    return rc;
+                    neighbours[SOUTH], NORTH, buffers[RECV][NORTH], size[_x_],
+                    MPI_DOUBLE, neighbours[NORTH], NORTH, *Comm, &statuses[1]);
 
-  rc = MPI_Sendrecv(buffers[SEND][WEST], size[_y_], MPI_DOUBLE,
-                    neighbours[WEST], TAG_EW, buffers[RECV][WEST], size[_y_],
-                    MPI_DOUBLE, neighbours[EAST], TAG_EW, *Comm, &statuses[2]);
   if (rc != MPI_SUCCESS)
     return rc;
 
   rc = MPI_Sendrecv(buffers[SEND][EAST], size[_y_], MPI_DOUBLE,
-                    neighbours[EAST], TAG_EW, buffers[RECV][EAST], size[_y_],
-                    MPI_DOUBLE, neighbours[WEST], TAG_EW, *Comm, &statuses[3]);
+                    neighbours[EAST], WEST, buffers[RECV][WEST], size[_y_],
+                    MPI_DOUBLE, neighbours[WEST], WEST, *Comm, &statuses[2]);
+
+  if (rc != MPI_SUCCESS)
+    return rc;
+
+  rc = MPI_Sendrecv(buffers[SEND][WEST], size[_y_], MPI_DOUBLE,
+                    neighbours[WEST], EAST, buffers[RECV][EAST], size[_y_],
+                    MPI_DOUBLE, neighbours[EAST], EAST, *Comm, &statuses[3]);
+
   if (rc != MPI_SUCCESS)
     return rc;
 
@@ -233,73 +232,9 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
 }
 
 // replace your update_plane with this version
-inline int update_plane_parallel_patches(const int periodic, const vec2_t N,
-                                         const plane_t *oldplane,
-                                         plane_t *newplane,
-                                         int nthreads) // pass number of
-{
-  const uint f_xsize = oldplane->size[0] + 2;
-  const uint xsize = oldplane->size[0];
-  const uint ysize = oldplane->size[1];
-
-  double *restrict newp = newplane->data;
-  const double *restrict oldp = oldplane->data;
-
-  const double c_center = 0.5;
-  const double c_neigh = 0.125;
-
-#pragma omp parallel num_threads(nthreads)
-  {
-    int tid = omp_get_thread_num();
-    uint j_start = 1 + tid * ysize / nthreads;
-    uint j_end = 1 + (tid + 1) * ysize / nthreads - 1;
-
-    for (uint j = j_start; j <= j_end; ++j) {
-      const double *row_above = oldp + (j - 1) * f_xsize;
-      const double *row_center = oldp + j * f_xsize;
-      const double *row_below = oldp + (j + 1) * f_xsize;
-      double *row_new = newp + j * f_xsize;
-
-#pragma omp simd
-      for (uint i = 1; i <= xsize; ++i) {
-        row_new[i] =
-            row_center[i] * c_center + (row_center[i - 1] + row_center[i + 1] +
-                                        row_above[i] + row_below[i]) *
-                                           c_neigh;
-      }
-    }
-  }
-
-  // --- Periodic boundaries ---
-  if (periodic) {
-    if (N[0] == 1) { // X-direction
-      for (uint j = 1; j <= ysize; ++j) {
-        double *row = newp + j * f_xsize;
-        row[0] = row[xsize];
-        row[xsize + 1] = row[1];
-      }
-    }
-    if (N[1] == 1) { // Y-direction
-      double *row_top = newp + 1 * f_xsize;
-      double *row_bottom = newp + ysize * f_xsize;
-      double *row_topghost = newp + 0 * f_xsize;
-      double *row_bottomghost = newp + (ysize + 1) * f_xsize;
-
-#pragma omp simd
-      for (uint i = 1; i <= xsize; ++i) {
-        row_topghost[i] = row_bottom[i];
-        row_bottomghost[i] = row_top[i];
-      }
-    }
-  }
-
-  return 0;
-}
-
-// replace your update_plane with this version
-inline int update_plane_parallel(const int periodic,
-                                 const vec2_t N, // MPI grid of ranks
-                                 const plane_t *oldplane, plane_t *newplane) {
+inline int update_plane(const int periodic,
+                        const vec2_t N, // MPI grid of ranks
+                        const plane_t *oldplane, plane_t *newplane) {
 
   const uint f_xsize = oldplane->size[_x_] + 2;
   const uint xsize = oldplane->size[_x_];
@@ -321,6 +256,16 @@ inline int update_plane_parallel(const int periodic,
     double *row_new = newp + j * f_xsize;
 
     for (uint i = 1; i <= xsize; ++i) {
+
+      // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even
+      //       if this patch is at some border without periodic conditions;
+      //       in that case it is assumed that the +-1 points are outside the
+      //       plate and always have a value of 0, i.e. they are an
+      //       "infinite sink" of heat
+      //
+      // NOTE: That if here I put an if statement (for example to check the
+      // borders) it is likely that the compiler will not perform
+      // vectorization by himself automatically
       const double center = row_center[i];
       const double left = row_center[i - 1];
       const double right = row_center[i + 1];
@@ -356,64 +301,22 @@ inline int update_plane_parallel(const int periodic,
     }
   }
 
-  return 0;
-}
+  // // TODO: Check if here I can simply take the code from the serial version
+  // // Perhaps I need to adjust things to work for the patches, though each
+  // // plane will have the corresponding size which helps identify and are
+  // // different for different ranks if I understood correctly
+  // if (periodic) {
+  //   if (N[_x_] == 1) {
+  //     // propagate the boundaries as needed
+  //     // check the serial version
+  //   }
+  //
+  //   if (N[_y_] == 1) {
+  //     // propagate the boundaries as needed
+  //     // check the serial version
+  //   }
+  // }
 
-inline int update_plane(const int periodic,
-                        const vec2_t N, // the grid of MPI tasks
-                        const plane_t *oldplane, plane_t *newplane)
-
-{
-  uint f_xsize = oldplane->size[_x_] + 2;
-
-  uint xsize = oldplane->size[_x_];
-  uint ysize = oldplane->size[_y_];
-
-#define IDX(i, j) ((j) * f_xsize + (i))
-
-  double *restrict old = oldplane->data;
-  double *restrict new = newplane->data;
-
-  for (uint j = 1; j <= ysize; j++)
-    for (uint i = 1; i <= xsize; i++) {
-
-      // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even
-      //       if this patch is at some border without periodic conditions;
-      //       in that case it is assumed that the +-1 points are outside the
-      //       plate and always have a value of 0, i.e. they are an
-      //       "infinite sink" of heat
-      //
-      // NOTE: That if here I put an if statement (for example to check the
-      // borders) it is likely that the compiler will not perform
-      // vectorization by himself automatically
-
-      // five-points stencil formula
-      //
-      // HINT : check the serial version for some optimization
-      //
-      new[IDX(i, j)] =
-          old[IDX(i, j)] / 2.0 + (old[IDX(i - 1, j)] + old[IDX(i + 1, j)] +
-                                  old[IDX(i, j - 1)] + old[IDX(i, j + 1)]) /
-                                     4.0 / 2.0;
-    }
-
-  // TODO: Check if here I can simply take the code from the serial version
-  // Perhaps I need to adjust things to work for the patches, though each
-  // plane will have the corresponding size which helps identify and are
-  // different for different ranks if I understood correctly
-  if (periodic) {
-    if (N[_x_] == 1) {
-      // propagate the boundaries as needed
-      // check the serial version
-    }
-
-    if (N[_y_] == 1) {
-      // propagate the boundaries as needed
-      // check the serial version
-    }
-  }
-
-#undef IDX
   return 0;
 }
 

@@ -115,8 +115,13 @@ int main(int argc, char **argv) {
     // Initialize array of statuses
     MPI_Status statuses[4];
 
-    exchange_halos(buffers, planes[current].size, neighbours, &my_COMM_WORLD,
-                   statuses);
+    int ret = exchange_halos(buffers, planes[current].size, neighbours,
+                             &my_COMM_WORLD, statuses);
+
+    // Return if unsuccessful
+    if (ret != MPI_SUCCESS) {
+      return ret;
+    }
 
     // [C] copy the haloes data
     copy_received_halos(buffers, &planes[current], neighbours);
@@ -128,7 +133,7 @@ int main(int argc, char **argv) {
     t_comp_start = MPI_Wtime();
 
     // update grid points
-    update_plane_parallel(periodic, N, &planes[current], &planes[!current]);
+    update_plane(periodic, N, &planes[current], &planes[!current]);
     // update_plane_parallel_patches(periodic, N, &planes[current],
     //                               &planes[!current], num_threads);
 
