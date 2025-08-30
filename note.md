@@ -4,6 +4,7 @@
 - [x] Think of mapping correctly in mpi
 - [x] Used the tools and print where things are placed
 - [x] Review mpi communication
+- [ ] Maybe memory should be in SoA not AoS
 - [ ] Make Irecv and Isend communication
 - [ ] Do a rough estimate of how much of the peak performance you are using
 - [ ] Check correctness of parallel code with python code
