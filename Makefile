@@ -39,10 +39,12 @@ test: all
 	mpirun -np 4 stencil_parallel -x 100 -y 100 -n 50 -o 1 -e 4 -s 1337                                                                                                  1m 4s 
 	pytest -v tests
 	rm -f stencil_parallel stencil_serial *.bin
+	rm -rf .pytest_cache
 
 # Clean built executables
 clean:
-	rm -f stencil_parallel stencil_serial *.bin
+	rm -f stencil_parallel stencil_serial *.bin 
+	rm -rf *.dSYM
 
 # Help target
 help:

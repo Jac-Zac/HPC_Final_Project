@@ -255,6 +255,10 @@ inline int update_plane(const int periodic,
     const double *row_below = oldp + (j + 1) * f_xsize;
     double *row_new = newp + j * f_xsize;
 
+#define TILE_SIZE 32
+
+#ifndef TILE_SIZE
+
     for (uint i = 1; i <= xsize; ++i) {
 
       // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even
@@ -275,6 +279,42 @@ inline int update_plane(const int periodic,
       row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
     }
   }
+
+#else
+
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+
+#pragma omp parallel for schedule(static)
+    for (uint j = 1; j <= ysize; j += TILE_SIZE) {
+      for (uint i = 1; i <= xsize; i += TILE_SIZE) {
+        // Process a tile of size TILE_SIZE x TILE_SIZE
+        const uint j_end = MIN(j + TILE_SIZE, ysize + 1);
+        const uint i_end = MIN(i + TILE_SIZE, xsize + 1);
+
+        for (uint jj = j; jj < j_end; ++jj) {
+          const double *row_above = oldp + (jj - 1) * f_xsize;
+          const double *row_center = oldp + jj * f_xsize;
+          const double *row_below = oldp + (jj + 1) * f_xsize;
+          double *row_new = newp + jj * f_xsize;
+
+          // #pragma omp simd
+          for (uint ii = i; ii < i_end; ++ii) {
+            const double center = row_center[ii];
+            const double left = row_center[ii - 1];
+            const double right = row_center[ii + 1];
+            const double up = row_above[ii];
+            const double down = row_below[ii];
+
+            row_new[ii] =
+                center * c_center + (left + right + up + down) * c_neigh;
+          }
+        }
+      }
+    }
+
+#undef MIN
+
+#endif
 
   // Periodic propagation for single-rank-in-dimension cases (your original
   // intent)
@@ -331,7 +371,7 @@ inline int get_total_energy(plane_t *plane, double *energy) {
 #if defined(LONG_ACCURACY)
   long double totenergy = 0;
 #else
-  double totenergy = 0;
+    double totenergy = 0;
 #endif
 
 #pragma omp parallel for reduction(+ : totenergy)
