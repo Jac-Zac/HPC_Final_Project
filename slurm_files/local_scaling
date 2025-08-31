@@ -1,7 +1,7 @@
 #!/bin/bash
 
 EXEC="mpirun -np 1 stencil_parallel"
-ARGS="-x 10000 -y 10000 -n 100 -o 0"
+ARGS="-x 20000 -y 20000 -n 100 -o 0"
 
 # Output summary file
 RESULTS_FILE=openmp_scaling_serial.txt
@@ -14,10 +14,13 @@ do
 
     # Set OpenMP environment variables
     export OMP_NUM_THREADS=$THREADS
-    # export OMP_PLACES=cores
-    # export OMP_PROC_BIND=close
+    export OMP_PLACES=cores
+    export OMP_PROC_BIND=spread
 
     OUTPUT=$(mktemp)
+
+    # Compile
+    make MODE=parallel
 
     # Run the executable
     $EXEC $ARGS > $OUTPUT

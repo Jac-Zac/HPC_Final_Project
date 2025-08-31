@@ -14,6 +14,7 @@
       but for each tile I touch a part that is filled by the thread
 - [ ] Big run
 - [ ] Report
+- [ ] Potentially tiled implementation frees up traffic from trading off more computation for less cache misses
 
 # NOTE:
 
