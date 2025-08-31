@@ -248,10 +248,6 @@ inline int update_plane(const int periodic,
   const double c_center = 0.5;  // = 1/2
   const double c_neigh = 0.125; // = 1/8
 
-  // #define TILE_SIZE 32
-
-#ifndef TILE_SIZE
-
 // Row-parallel, inner loop vectorized by compiler
 #pragma omp parallel for schedule(static)
   for (uint j = 1; j <= ysize; ++j) {
@@ -280,41 +276,6 @@ inline int update_plane(const int periodic,
       row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
     }
   }
-
-#else
-
-// #pragma omp parallel for schedule(static) collapse(2)
-#pragma omp parallel for schedule(dynamic) collapse(2)
-  for (uint jb = 1; jb <= ysize; jb += TILE_SIZE) {
-    for (uint ib = 1; ib <= xsize; ib += TILE_SIZE) {
-      // Process a tile of size TILE_SIZE x TILE_SIZE
-
-      const uint je =
-          (jb + TILE_SIZE <= ysize + 1) ? jb + TILE_SIZE : ysize + 1;
-      const uint ie =
-          (ib + TILE_SIZE <= xsize + 1) ? ib + TILE_SIZE : xsize + 1;
-
-      // Process block with good locality
-      for (uint j = jb; j < je; ++j) {
-        const double *row_above = oldp + (j - 1) * f_xsize;
-        const double *row_center = oldp + j * f_xsize;
-        const double *row_below = oldp + (j + 1) * f_xsize;
-        double *row_new = newp + j * f_xsize;
-
-#pragma omp simd
-        for (uint i = ib; i < ie; ++i) {
-          const double center = row_center[i];
-          const double left = row_center[i - 1];
-          const double right = row_center[i + 1];
-          const double up = row_above[i];
-          const double down = row_below[i];
-          row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-        }
-      }
-    }
-  }
-
-#endif
 
   // Periodic propagation for single-rank-in-dimension cases (your original
   // intent)

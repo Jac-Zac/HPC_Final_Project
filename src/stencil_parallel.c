@@ -679,13 +679,23 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   if (planes_ptr[OLD].data == NULL)
     // manage the malloc fail
     return -1;
-  memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
 
   planes_ptr[NEW].data = (double *)malloc(frame_size * sizeof(double));
   if (planes_ptr[NEW].data == NULL)
     // manage the malloc fail
     return -2;
-  memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
+
+  // memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
+  // memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
+
+  // get the size in bytes
+  unsigned int bytes =
+      (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
+
+#pragma omp parallel for schedule(static)
+  for (unsigned int i = 0; i < 2 * bytes; i++) {
+    planes_ptr[OLD].data[i] = 0.0;
+  }
 
   // ··················································
   // NOTE: This comment is done by the professor
