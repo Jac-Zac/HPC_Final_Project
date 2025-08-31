@@ -1,51 +1,81 @@
 #!/bin/bash
-#SBATCH --nodes=1
-#SBATCH --ntasks=8                 # maximum MPI ranks you plan to use
-#SBATCH --cpus-per-task=8          # threads per rank (OpenMP)
-#SBATCH --mem=0
+#SBATCH --job-name=stencil_mpi_scaling
 #SBATCH --partition=GENOA
-#SBATCH -t 00:02:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=8      # Set to the number of NUMA domains on your node
+#SBATCH --cpus-per-task=8        # Set to the number of cores per NUMA domain
+#SBATCH --time=00:05:00
 #SBATCH --exclusive
-#SBATCH --job-name=stencil_scaling
 
+# --- Configuration ---
 EXEC=./stencil_parallel
 ARGS="-x 10000 -y 10000 -n 100 -o 0"
+RESULTS_FILE=mpi_scaling_numa_mapped.txt
 
+# --- Environment Setup ---
+# It's good practice to load modules before compiling and running
 module load openMPI/5.0.5
 
-# Compile
+echo "--- Compiling the application ---"
 make MODE=parallel LOG=0
 
-# OpenMP settings
+# --- OpenMP Settings ---
+# Set the number of threads to the number of CPUs allocated per MPI task by Slurm
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+# Bind OpenMP threads to physical cores
 export OMP_PLACES=cores
+# Bind threads closely together. Since the MPI rank will be bound to a NUMA domain,
+# this will keep all threads for that rank within that same NUMA domain.
 export OMP_PROC_BIND=close
+# Optional: Display affinity to verify thread placement in the output logs
+export OMP_DISPLAY_AFFINITY=TRUE
 
-# Max MPI ranks and threads per rank from Slurm
-MAX_TASKS=${SLURM_NTASKS:-8}                # fallback if variable not set
-THREADS_PER_TASK=${SLURM_CPUS_PER_TASK:-8}
-export OMP_NUM_THREADS=$THREADS_PER_TASK
-
-# Output file
-RESULTS_FILE=mpi_scaling.txt
+# --- Results File Header ---
 echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
-# Automatic scaling loop: 1 to MAX_TASKS
-for ((TASKS=1; TASKS<=MAX_TASKS; TASKS*=2))
+# --- Scaling Loop ---
+# This loop will run tests for 1, 2, 4, and 8 MPI tasks.
+# Your SBATCH directives have already allocated resources for the maximum of 8 tasks.
+# We are now launching MPI jobs with a subset of those allocated resources.
+for TASKS in 1 2 4 8
 do
-    echo ">>> Running with $TASKS MPI tasks"
+    echo ">>> Running with $TASKS MPI tasks, ${OMP_NUM_THREADS} threads per task"
+
     OUTPUT=$(mktemp)
 
-    # Run MPI + OpenMP
-    mpirun -np $TASKS --map-by ppr:$TASKS:node:pe=$THREADS_PER_TASK $EXEC $ARGS > $OUTPUT
+    # --- MPI Execution ---
+    # -np $TASKS: Run with the current number of tasks for this loop iteration.
+    # --report-bindings: A very useful flag to see how OpenMPI is binding processes.
+    # --map-by numa: This is the key. It tells OpenMPI to map ranks to NUMA domains in a round-robin fashion.
+    #                Rank 0 -> NUMA0, Rank 1 -> NUMA1, ..., Rank 7 -> NUMA7.
+    # --bind-to numa: This binds each MPI rank to the NUMA domain it was mapped to.
+    # This combination ensures each MPI process and all its threads stay within a single NUMA domain,
+    # preventing costly cross-NUMA memory access and directly testing your hypothesis.
+    #
+    mpirun -np $TASKS \
+           --report-bindings \
+           --map-by core \
+           --bind-to none \
+           $EXEC $ARGS > $OUTPUT
 
-    # Extract metrics from output
+    # --- Data Extraction ---
+    # This part remains the same as your script
     TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
     MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
     MAX_COMM=$(grep "Max communication time" $OUTPUT | awk '{print $6}')
     ENERGY_TIME=$(grep "Total energy computaton time" $OUTPUT | awk '{print $5}')
 
-    # Append to CSV
-    echo "$TASKS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
+    # --- Save Results ---
+    # Added a simple check to ensure data was actually extracted
+    if [ -n "$TOTAL_TIME" ]; then
+        echo "$TASKS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
+    else
+        echo "$TASKS,ERROR,ERROR,ERROR,ERROR" >> $RESULTS_FILE
+        echo "Error parsing output for $TASKS tasks. Check the temporary output file for details."
+    fi
 
     rm $OUTPUT
 done
+
+echo "---"
+echo "Scaling test complete. Results are in $RESULTS_FILE"
