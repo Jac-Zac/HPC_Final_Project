@@ -5,14 +5,14 @@
 #SBATCH --mem=0
 #SBATCH --partition=dcgp_usr_prod
 #SBATCH -A uTS25_Tornator_0
-#SBATCH -t 00:00:30
+#SBATCH -t 00:20:00
 #SBATCH --exclusive
 #SBATCH --job-name=stencil_scaling_openmp
 
 EXEC=./stencil_parallel
-ARGS="-x 10000 -y 10000 -n 100 -o 0"
+ARGS="-x 20000 -y 20000 -n 100 -o 0"
 
-RESULTS_FILE=openmp_scaling.txt
+RESULTS_FILE=openmp_scaling_cineca.txt
 echo "Threads,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
 # Load module
@@ -22,14 +22,14 @@ module load openmpi/4.1.6--gcc--12.2.0
 make MODE=parallel LOG=0
 
 # Loop over thread counts
-for THREADS in 1 2 4 8 16 32 56 84 112
+for THREADS in 1 2 4 8 16 32
 do
     echo ">>> Running with $THREADS OpenMP threads"
 
     # Set OpenMP environment variables
     export OMP_NUM_THREADS=$THREADS
     export OMP_PLACES=cores
-    export OMP_PROC_BIND=close
+    export OMP_PROC_BIND=spread
     export OMP_DISPLAY_AFFINITY=TRUE
 
     # Log CPU layout only once
@@ -40,7 +40,7 @@ do
     OUTPUT=$(mktemp)
 
     # Avoid mpi binding
-    mpirun -np 1 --display-map --display-allocation --report-bindings  --bind-to none $EXEC $ARGS > $OUTPUT
+    mpirun -np 1 --display-map --display-allocation --report-bindings --bind-to none $EXEC $ARGS > $OUTPUT
 
     # Extract values
     TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
