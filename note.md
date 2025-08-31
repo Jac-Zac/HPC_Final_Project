@@ -5,6 +5,7 @@
 - [x] Used the tools and print where things are placed
 - [x] Review mpi communication
 - [x] OpenMP scaling + touch first works correctly compare it to not touching and not spread through NUMA regions
+- [ ] Test old version of the update loop vs my custom version to see the difference
 - [ ] Tiling reduces cache misses drastically but makes code too slow because of overhead perhaps you can just tile the threads
 - [ ] Make Irecv and Isend communication
 - [ ] Check correctness of parallel code with python code
