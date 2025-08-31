@@ -2,12 +2,11 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-##SBATCH --mem=0G # request all memory
 #SBATCH --mem=10G
 ##SBATCH --exclusive
 #SBATCH --partition=dcgp_usr_prod
 #SBATCH -A uTS25_Tornator_0
-#SBATCH -t 00:00:10
+#SBATCH -t 00:00:30
 #SBATCH --job-name=stencil_hybrid
 
 # Set the executable name
@@ -26,7 +25,8 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 # Pin threads to physical cores
 export OMP_PLACES=cores
 # Bind threads closely together, good for shared data
-export OMP_PROC_BIND=close
+export OMP_PROC_BIND=spead
+export OMP_DISPLAY_AFFINITY=TRUE
 
 # Set the total number of MPI tasks (SLURM calculates this: nodes * ntasks-per-node)
 TOTAL_MPI_TASKS=${SLURM_NTASKS}
@@ -34,14 +34,11 @@ TOTAL_MPI_TASKS=${SLURM_NTASKS}
 # Define the arguments for the executable
 # Using a large grid for a multi-node run
 # # Non periodic outputting values
-ARGS="-x 10000 -y 10000 -n 50 -p 0 -o 0"
+ARGS="-x 20000 -y 20000 -n 50 -p 0 -o 0"
 
 # Print run information
 echo "Running on ${SLURM_NNODES} nodes with ${TOTAL_MPI_TASKS} MPI tasks."
 echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 
-# Execute the parallel program using mpirun
-# The output will be saved to a file named 'out_leonardo.log'
-# mpirun -np ${TOTAL_MPI_TASKS} ${EXEC} ${ARGS} > out_leonardo.log
-
-perf stat -e cycles
+# Avoid mpi binding
+mpirun -np 1 --display-map --display-allocation --report-bindings --bind-to none $EXEC $ARGS > $OUTPUT
