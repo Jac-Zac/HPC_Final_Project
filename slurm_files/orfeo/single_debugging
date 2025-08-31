@@ -1,8 +1,9 @@
+[jzacchigna@login01 ~/HPC_Final_Project/slurm_files/orfeo] $ cat single_debugging
 #!/bin/bash
 #SBATCH --nodes=1                   # 1 node
-#SBATCH --ntasks=8                  # total MPI tasks across nodes
-#SBATCH --ntasks-per-node=8         # 8 MPI tasks on the node
-#SBATCH --cpus-per-task=8           # 8 OpenMP threads per MPI task
+#SBATCH --ntasks=2                  # 2 MPI tasks
+#SBATCH --ntasks-per-node=2         # 2 MPI tasks on the node
+#SBATCH --cpus-per-task=8           # 8 CPUs per MPI task (for OpenMP threads)
 #SBATCH --mem=0                     # use all available memory
 #SBATCH --partition=GENOA
 #SBATCH -t 00:00:30                 # 5 minutes
@@ -12,11 +13,10 @@
 # Set the executable name
 EXEC=./stencil_parallel
 
-# =======================================================
 # Set OpenMP environment variables
-export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_NUM_THREADS=8
 export OMP_PLACES=cores
-export OMP_PROC_BIND=spread
+export OMP_PROC_BIND=close
 export OMP_DISPLAY_AFFINITY=TRUE
 
 # Loading necessary module
@@ -26,15 +26,23 @@ module load openMPI/5.0.5
 TOTAL_MPI_TASKS=${SLURM_NTASKS}
 
 # Define the arguments for the executable
-# A medium-sized grid suitable for a single-node run
 ARGS="-x 20000 -y 20000 -n 100 -o 0"
+
+# Get the hostname for the rankfile
+HOSTNAME=$(hostname)
+
+# Create rankfile for NUMA-aware mapping with correct syntax
+cat > rankfile.txt << EOF
+rank 0=${HOSTNAME} slot=0,8,16,24,32,40,48,56
+rank 1=${HOSTNAME} slot=1,9,17,25,33,41,49,57
+EOF
 
 # Print run information
 echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
 echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 
-# Compiling with logging the serial version
+# Compile the code
 make MODE=parallel LOG=0
 
-# Run the code using mpirun
-mpirun -np ${TOTAL_MPI_TASKS} ${EXEC} ${ARGS} > ${TOTAL_MPI_TASKS}_mpi_${OMP_NUM_THREADS}_threads.log
+# Run the code using mpirun with the rankfile
+mpirun -np ${TOTAL_MPI_TASKS} --map-by rankfile:file=rankfile.txt --bind-to core --display-map ${EXEC} ${ARGS} > ${OMP_NUM_THREADS}_test.log
