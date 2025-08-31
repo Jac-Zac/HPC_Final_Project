@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --nodes=1
 #SBATCH --ntasks=1                 # only 1 MPI rank
-#SBATCH --cpus-per-task=32         # up to 32 OpenMP threads
+#SBATCH --cpus-per-task=112        # reserve all cores, up to 112 OMP threads
 #SBATCH --mem=0
 #SBATCH --partition=dcgp_usr_prod
 #SBATCH -A uTS25_Tornator_0
@@ -12,7 +12,6 @@
 EXEC=./stencil_parallel
 ARGS="-x 10000 -y 10000 -n 100 -o 0"
 
-# Output summary file
 RESULTS_FILE=openmp_scaling.txt
 echo "Threads,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
@@ -23,7 +22,7 @@ module load openmpi/4.1.6--gcc--12.2.0
 make MODE=parallel LOG=0
 
 # Loop over thread counts
-for THREADS in 1 2 4 8 16 32
+for THREADS in 1 2 4 8 16 32 56 84 112
 do
     echo ">>> Running with $THREADS OpenMP threads"
 
@@ -31,7 +30,6 @@ do
     export OMP_NUM_THREADS=$THREADS
     export OMP_PLACES=cores
     export OMP_PROC_BIND=close
-    export OMP_DISPLAY_ENV=VERBOSE
     export OMP_DISPLAY_AFFINITY=TRUE
 
     # Log CPU layout only once
@@ -41,17 +39,16 @@ do
 
     OUTPUT=$(mktemp)
 
-    # Run with 1 MPI rank, assigning $THREADS cores
-    mpirun -np 1 --map-by ppr:1:node:pe=$THREADS --bind-to core $EXEC $ARGS > $OUTPUT
+    # Run pinned to NUMA region(s) with OpenMPI
+    mpirun -np 1 --bind-to core --map-by ppr:1:numa:pe=$THREADS \
+        $EXEC $ARGS > $OUTPUT
 
-    # Extract values from output log
+    # Extract values
     TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
     MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
     MAX_COMM=$(grep "Max communication time" $OUTPUT | awk '{print $6}')
     ENERGY_TIME=$(grep "Total energy computaton time" $OUTPUT | awk '{print $5}')
 
-    # Append to results file
     echo "$THREADS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
-
     rm $OUTPUT
 done
