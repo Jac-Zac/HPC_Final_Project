@@ -25,7 +25,7 @@ export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 # Pin threads to physical cores
 export OMP_PLACES=cores
 # Bind threads closely together, good for shared data
-export OMP_PROC_BIND=spead
+export OMP_PROC_BIND=spread
 export OMP_DISPLAY_AFFINITY=TRUE
 
 # Set the total number of MPI tasks (SLURM calculates this: nodes * ntasks-per-node)
