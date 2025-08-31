@@ -1,49 +1,43 @@
 #!/bin/bash
+#SBATCH --job-name=stencil_openmp_scaling
+#SBATCH --partition=THIN
 #SBATCH --nodes=1
-#SBATCH --ntasks=1                 # only 1 MPI rank
-#SBATCH --cpus-per-task=64         # allow up to 64 threads
-#SBATCH --mem=0
-#SBATCH --partition=GENOA
-#SBATCH -t 00:05:00
+#SBATCH --ntasks=1            # only 1 MPI rank
+#SBATCH --cpus-per-task=24    # reserve all 24 cores on the node
+#SBATCH --mem=2G
+#SBATCH --time=00:02:00
 #SBATCH --exclusive
-#SBATCH --job-name=stencil_scaling_openmp
 
 EXEC=./stencil_parallel
 ARGS="-x 5000 -y 5000 -n 100 -o 0"
 
-# Output summary file
-RESULTS_FILE=openmp_scaling.txt
+RESULTS_FILE=openmp_scaling_thin.txt
 echo "Threads,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
-# Load module
 module load openMPI/5.0.5
-
-# Compile OpenMP version
 make MODE=parallel LOG=0
 
-# Loop over thread counts
-for THREADS in 1 2 4 8 16 32
+# Scaling on powers of 2 up to 24 cores
+for THREADS in 1 2 4 6 8 12 16 24
 do
     echo ">>> Running with $THREADS OpenMP threads"
 
-    # Set OpenMP environment variables
     export OMP_NUM_THREADS=$THREADS
     export OMP_PLACES=cores
     export OMP_PROC_BIND=close
+    export OMP_DISPLAY_AFFINITY=TRUE
 
     OUTPUT=$(mktemp)
 
-    # Run with 1 MPI rank, giving it $THREADS cores
-    mpirun -np 1 --map-by ppr:1:node:pe=$THREADS --bind-to core $EXEC $ARGS > $OUTPUT
+    # Run with NUMA-aware binding: 1 MPI rank per NUMA domain, allocate $THREADS cores
+    mpirun -np 1 --bind-to core --map-by ppr:1:numa:pe=$THREADS \
+        $EXEC $ARGS > $OUTPUT
 
-    # Extract values from output log
     TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
     MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
     MAX_COMM=$(grep "Max communication time" $OUTPUT | awk '{print $6}')
     ENERGY_TIME=$(grep "Total energy computaton time" $OUTPUT | awk '{print $5}')
 
-    # Append to results file
     echo "$THREADS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
-
     rm $OUTPUT
 done
