@@ -9,7 +9,7 @@
 #SBATCH --exclusive
 
 EXEC=./stencil_parallel
-ARGS="-x 5000 -y 5000 -n 100 -o 0"
+ARGS="-x 10000 -y 10000 -n 100 -o 0"
 
 RESULTS_FILE=openmp_scaling_thin.txt
 echo "Threads,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
@@ -29,9 +29,9 @@ do
 
     OUTPUT=$(mktemp)
 
-    # Run with NUMA-aware binding: 1 MPI rank per NUMA domain, allocate $THREADS cores
-    mpirun -np 1 --bind-to core --map-by ppr:1:numa:pe=$THREADS \
-        $EXEC $ARGS > $OUTPUT
+
+    # Avoid mpi binding
+    mpirun -np 1 --display-map --display-allocation --report-bindings  --bind-to none $EXEC $ARGS > $OUTPUT
 
     TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
     MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
