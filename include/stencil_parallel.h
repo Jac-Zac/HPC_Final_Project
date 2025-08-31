@@ -233,6 +233,8 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
 
 // replace your update_plane with this version
 
+#define TILES
+#ifndef TILES
 inline int update_plane(const int periodic,
                         const vec2_t N, // MPI grid of ranks
                         const plane_t *oldplane, plane_t *newplane) {
@@ -320,6 +322,96 @@ inline int update_plane(const int periodic,
 
   return 0;
 }
+
+#else
+/* Replace your update_plane with this version (drop-in) */
+
+#ifndef TILE_J
+/* tune: number of rows per tile (try 16..64) */
+// #define TILE_J 32
+#define TILE_J 16
+#endif
+#ifndef TILE_I
+/* tune: cols per tile (must be multiple of vector width*unroll) */
+// #define TILE_I 256
+#define TILE_I 128
+#endif
+
+inline int update_plane(const int periodic, const vec2_t N,
+                        const plane_t *oldplane, plane_t *newplane) {
+
+  const uint f_xsize = oldplane->size[_x_] + 2;
+  const uint xsize = oldplane->size[_x_];
+  const uint ysize = oldplane->size[_y_];
+
+  double *restrict newp = newplane->data;
+  const double *restrict oldp = oldplane->data;
+
+  const double c_center = 0.5;
+  const double c_neigh = 0.125;
+
+  /* number of tiles in each dim */
+  const uint nt_i = (xsize + TILE_I - 1) / TILE_I;
+  const uint nt_j = (ysize + TILE_J - 1) / TILE_J;
+  const uint total_tiles = nt_i * nt_j;
+
+/* Parallel over tiles. each tile keeps inner i-loop contiguous for
+ * vectorization */
+#pragma omp parallel for schedule(static)
+  for (uint t = 0; t < total_tiles; ++t) {
+    const uint tj = t / nt_i; /* tile index in j */
+    const uint ti = t % nt_i; /* tile index in i  */
+
+    const uint j0 = tj * TILE_J + 1;
+    const uint i0 = ti * TILE_I + 1;
+
+    const uint j1 = (j0 + TILE_J - 1 <= ysize) ? (j0 + TILE_J - 1) : ysize;
+    const uint i1 = (i0 + TILE_I - 1 <= xsize) ? (i0 + TILE_I - 1) : xsize;
+
+    for (uint j = j0; j <= j1; ++j) {
+      const double *row_above = oldp + (j - 1) * f_xsize;
+      const double *row_center = oldp + j * f_xsize;
+      const double *row_below = oldp + (j + 1) * f_xsize;
+      double *row_new = newp + j * f_xsize;
+
+      /* inner loop exactly same shape as your original -> vectorizable */
+      for (uint i = i0; i <= i1; ++i) {
+        const double center = row_center[i];
+        const double left = row_center[i - 1];
+        const double right = row_center[i + 1];
+        const double up = row_above[i];
+        const double down = row_below[i];
+
+        row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
+      }
+    }
+  }
+
+  /* preserve your periodic ghost-copy behavior exactly as before */
+  if (periodic) {
+    if (N[_x_] == 1) {
+      for (uint j = 1; j <= ysize; ++j) {
+        double *row = newp + j * f_xsize;
+        row[0] = row[xsize];
+        row[xsize + 1] = row[1];
+      }
+    }
+    if (N[_y_] == 1) {
+      double *row_top = newp + 1 * f_xsize;
+      double *row_bottom = newp + ysize * f_xsize;
+      double *row_topghost = newp + 0 * f_xsize;
+      double *row_botghost = newp + (ysize + 1) * f_xsize;
+      for (uint i = 1; i <= xsize; ++i) {
+        row_topghost[i] = row_bottom[i];
+        row_botghost[i] = row_top[i];
+      }
+    }
+  }
+
+  return 0;
+}
+
+#endif
 
 inline int get_total_energy(plane_t *plane, double *energy) {
 
