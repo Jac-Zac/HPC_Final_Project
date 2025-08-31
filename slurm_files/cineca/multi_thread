@@ -39,9 +39,15 @@ do
 
     OUTPUT=$(mktemp)
 
-    # Run pinned to NUMA region(s) with OpenMPI
-    mpirun -np 1 --bind-to core --map-by ppr:1:numa:pe=$THREADS \
-        $EXEC $ARGS > $OUTPUT
+    if [ "$THREADS" -le 12 ]; then
+        # Restrict process & memory to NUMA node 0 (all cpus on that node).
+        # This guarantees first-touch pages land on NUMA0.
+        numactl --cpunodebind=0 --membind=0 \
+        mpirun -np 1 --report-bindings --bind-to core $EXEC $ARGS > $OUTPUT 2>&1
+    else
+        # More threads than one NUMA node -> allow both nodes (no membinding)
+        mpirun -np 1 --report-bindings --bind-to core $EXEC $ARGS > $OUTPUT 2>&1
+    fi
 
     # Extract values
     TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')

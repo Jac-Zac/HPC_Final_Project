@@ -688,13 +688,11 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   // memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
   // memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
 
-  // get the size in bytes
-  unsigned int bytes =
-      (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
-
+  // Initialize memory by touching it correctly
 #pragma omp parallel for schedule(static)
-  for (unsigned int i = 0; i < 2 * bytes; i++) {
+  for (unsigned int i = 0; i < frame_size; i++) {
     planes_ptr[OLD].data[i] = 0.0;
+    planes_ptr[NEW].data[i] = 0.0;
   }
 
   // ··················································
@@ -726,11 +724,15 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   // ··················································
   // allocate buffers
   // Both send and rexieve for west and east
-  buffers_ptr[SEND][WEST] = malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
-  buffers_ptr[RECV][WEST] = malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  buffers_ptr[SEND][WEST] =
+      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  buffers_ptr[RECV][WEST] =
+      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
 
-  buffers_ptr[SEND][EAST] = malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
-  buffers_ptr[RECV][EAST] = malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  buffers_ptr[SEND][EAST] =
+      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  buffers_ptr[RECV][EAST] =
+      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
 
   // ··················································
 
