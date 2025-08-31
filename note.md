@@ -14,3 +14,8 @@
       but for each tile I touch a part that is filled by the thread
 - [ ] Big run
 - [ ] Report
+
+# NOTE:
+
+There is an improvement of around 15 %
+From 3.8 to 3.2 seconds 8 threads 1 mpi task
