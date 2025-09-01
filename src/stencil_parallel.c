@@ -697,38 +697,55 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   }
 #else
 
-  // Local plane dimensions (without halos)
-  const uint xsize = planes_ptr[OLD].size[_x_];
-  const uint ysize = planes_ptr[OLD].size[_y_];
-  // Full plane dimensions (with halos)
+  const uint xsize = planes_ptr[NEW].size[_x_];
+  const uint ysize = planes_ptr[NEW].size[_y_];
   const uint f_xsize = xsize + 2;
 
-  // Calculate tile layout
+  // Helper: compute tile counts
   const uint nt_i = (xsize + TILE_I - 1) / TILE_I;
   const uint nt_j = (ysize + TILE_J - 1) / TILE_J;
   const uint total_tiles = nt_i * nt_j;
-// Initialize memory using the same parallel tile decomposition
-#pragma omp parallel for schedule(static)
-  for (uint t = 0; t < total_tiles; ++t) {
-    const uint tj = t / nt_i; // tile index in j
-    const uint ti = t % nt_i; // tile index in i
 
-    // Calculate start and end indices for this tile (in the non-halo grid)
-    const uint j0 = tj * TILE_J + 1;
-    const uint i0 = ti * TILE_I + 1;
+  double *restrict newp = planes_ptr[NEW].data;
+  const double *restrict oldp = planes_ptr[OLD].data;
 
-    const uint j1 = (j0 + TILE_J - 1 <= ysize) ? (j0 + TILE_J - 1) : ysize;
-    const uint i1 = (i0 + TILE_I - 1 <= xsize) ? (i0 + TILE_I - 1) : xsize;
+  const double c_center = 0.5;
+  const double c_neigh = 0.125;
 
-    // Iterate within the tile and initialize memory
-    for (uint j = j0; j <= j1; ++j) {
-      for (uint i = i0; i <= i1; ++i) {
-        const uint index = j * f_xsize + i;
-        planes_ptr[OLD].data[index] = 0.0;
-        planes_ptr[NEW].data[index] = 0.0;
+// ---------- FIRST-TOUCH: initialize pages using same partitioning ----------
+#pragma omp parallel
+  {
+    const int tid = omp_get_thread_num();
+    const int nth = omp_get_num_threads();
+
+    // each thread gets a contiguous range of tiles [t0, t1)
+    const uint tiles_per_thread = (total_tiles + nth - 1) / nth; // ceil
+    const uint t0 = tid * tiles_per_thread;
+    uint t1 = t0 + tiles_per_thread;
+    if (t1 > total_tiles)
+      t1 = total_tiles;
+
+    // Touch rows corresponding to assigned tiles (touch output and input
+    // arrays)
+    for (uint t = t0; t < t1; ++t) {
+      const uint tj = t / nt_i;
+      const uint ti = t % nt_i;
+      const uint j0 = tj * TILE_J + 1;
+      const uint j1 = (j0 + TILE_J - 1 <= ysize) ? (j0 + TILE_J - 1) : ysize;
+      for (uint j = j0; j <= j1; ++j) {
+        // touch the whole row (stepping to reduce overhead)
+        double *row_new = newp + j * f_xsize;
+        double const *row_old = oldp + j * f_xsize;
+        // touching every element ensures page allocation for that thread
+        for (uint i = 0; i < f_xsize; i += 8) {
+          row_new[i] = 0.0;
+          ((double *)row_old)[i] = ((
+              double *)row_old)[i]; // read to ensure page allocated (optional)
+        }
       }
     }
-  }
+  } // end parallel first-touch
+
 #endif
 
   // ··················································

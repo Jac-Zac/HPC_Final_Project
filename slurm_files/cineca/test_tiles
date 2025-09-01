@@ -57,7 +57,7 @@ make clean
 
 # Compiling with logging the serial version
 make MODE=parallel TILE=0
-$EXEC $ARGS > genoa/${OMP_NUM_THREADS}_NOT_TILED.log
+$EXEC $ARGS > ${OMP_NUM_THREADS}_NOT_TILED.log
 
 # Clean up after
 make clean
