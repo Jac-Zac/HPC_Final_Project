@@ -344,7 +344,16 @@ inline int update_plane(const int periodic,
 #else
 /* Replace your update_plane with this version (drop-in) */
 
-inline int update_plane(const int periodic, const vec2_t N,
+#include <stdint.h> // For uint definitions if not already included
+
+// --- Tunable Parameter ---
+// The number of consecutive rows each thread works on.
+// This should be tuned to fit within the L1 or L2 cache.
+// Good values to test are typically powers of two, e.g., 8, 16, 32.
+#define STRIP_HEIGHT 32
+
+inline int update_plane(const int periodic,
+                        const vec2_t N, // MPI grid of ranks
                         const plane_t *oldplane, plane_t *newplane) {
 
   const uint f_xsize = oldplane->size[_x_] + 2;
@@ -354,35 +363,29 @@ inline int update_plane(const int periodic, const vec2_t N,
   double *restrict newp = newplane->data;
   const double *restrict oldp = oldplane->data;
 
+  // Pre-compute stencil coefficients
   const double c_center = 0.5;
   const double c_neigh = 0.125;
 
-  /* number of tiles in each dim */
-  const uint nt_i = (xsize + TILE_I - 1) / TILE_I;
-  const uint nt_j = (ysize + TILE_J - 1) / TILE_J;
-  const uint total_tiles = nt_i * nt_j;
-
-/* Parallel over tiles. each tile keeps inner i-loop contiguous for
- * vectorization */
+// Parallelize over vertical "strips" of the grid.
+// Each thread takes a full strip and computes it, maximizing cache reuse.
 #pragma omp parallel for schedule(static)
-  for (uint t = 0; t < total_tiles; ++t) {
-    const uint tj = t / nt_i; /* tile index in j */
-    const uint ti = t % nt_i; /* tile index in i  */
+  for (uint j_strip = 1; j_strip <= ysize; j_strip += STRIP_HEIGHT) {
 
-    const uint j0 = tj * TILE_J + 1;
-    const uint i0 = ti * TILE_I + 1;
+    // Determine the actual end row for this strip to handle boundary cases
+    const uint j_end = (j_strip + STRIP_HEIGHT - 1 < ysize)
+                           ? (j_strip + STRIP_HEIGHT - 1)
+                           : ysize;
 
-    const uint j1 = (j0 + TILE_J - 1 <= ysize) ? (j0 + TILE_J - 1) : ysize;
-    const uint i1 = (i0 + TILE_I - 1 <= xsize) ? (i0 + TILE_I - 1) : xsize;
-
-    for (uint j = j0; j <= j1; ++j) {
+    // Loop over the rows within this thread's assigned strip
+    for (uint j = j_strip; j <= j_end; ++j) {
       const double *row_above = oldp + (j - 1) * f_xsize;
       const double *row_center = oldp + j * f_xsize;
       const double *row_below = oldp + (j + 1) * f_xsize;
       double *row_new = newp + j * f_xsize;
 
-      /* inner loop exactly same shape as your original -> vectorizable */
-      for (uint i = i0; i <= i1; ++i) {
+      // The inner loop remains the same, ensuring it can be vectorized
+      for (uint i = 1; i <= xsize; ++i) {
         const double center = row_center[i];
         const double left = row_center[i - 1];
         const double right = row_center[i + 1];
@@ -394,7 +397,7 @@ inline int update_plane(const int periodic, const vec2_t N,
     }
   }
 
-  /* preserve your periodic ghost-copy behavior exactly as before */
+  // Periodic boundary condition handling remains exactly the same
   if (periodic) {
     if (N[_x_] == 1) {
       for (uint j = 1; j <= ysize; ++j) {
@@ -407,10 +410,11 @@ inline int update_plane(const int periodic, const vec2_t N,
       double *row_top = newp + 1 * f_xsize;
       double *row_bottom = newp + ysize * f_xsize;
       double *row_topghost = newp + 0 * f_xsize;
-      double *row_botghost = newp + (ysize + 1) * f_xsize;
+      double *row_bottomghost = newp + (ysize + 1) * f_xsize;
+
       for (uint i = 1; i <= xsize; ++i) {
         row_topghost[i] = row_bottom[i];
-        row_botghost[i] = row_top[i];
+        row_bottomghost[i] = row_top[i];
       }
     }
   }
