@@ -362,83 +362,38 @@ inline int update_plane(const int periodic, const vec2_t N,
   const uint nt_j = (ysize + TILE_J - 1) / TILE_J;
   const uint total_tiles = nt_i * nt_j;
 
-#pragma omp parallel
-  {
-    const int tid = omp_get_thread_num();
-    const int nth = omp_get_num_threads();
+/* Parallel over tiles. each tile keeps inner i-loop contiguous for
+ * vectorization */
+#pragma omp parallel for schedule(static)
+  for (uint t = 0; t < total_tiles; ++t) {
+    const uint tj = t / nt_i; /* tile index in j */
+    const uint ti = t % nt_i; /* tile index in i  */
 
-    const uint tiles_per_thread = (total_tiles + nth - 1) / nth;
-    const uint t0 = tid * tiles_per_thread;
-    uint t1 = t0 + tiles_per_thread;
-    if (t1 > total_tiles)
-      t1 = total_tiles;
+    const uint j0 = tj * TILE_J + 1;
+    const uint i0 = ti * TILE_I + 1;
 
-    for (uint t = t0; t < t1; ++t) {
-      const uint tj = t / nt_i;
-      const uint ti = t % nt_i;
-      const uint j0 = tj * TILE_J + 1;
-      const uint i0 = ti * TILE_I + 1;
-      const uint j1 = (j0 + TILE_J - 1 <= ysize) ? (j0 + TILE_J - 1) : ysize;
-      const uint i1 = (i0 + TILE_I - 1 <= xsize) ? (i0 + TILE_I - 1) : xsize;
+    const uint j1 = (j0 + TILE_J - 1 <= ysize) ? (j0 + TILE_J - 1) : ysize;
+    const uint i1 = (i0 + TILE_I - 1 <= xsize) ? (i0 + TILE_I - 1) : xsize;
 
-      for (uint j = j0; j <= j1; ++j) {
-        const double *restrict row_above = oldp + (j - 1) * f_xsize;
-        const double *restrict row_center = oldp + j * f_xsize;
-        const double *restrict row_below = oldp + (j + 1) * f_xsize;
-        double *restrict row_new = newp + j * f_xsize;
+    for (uint j = j0; j <= j1; ++j) {
+      const double *row_above = oldp + (j - 1) * f_xsize;
+      const double *row_center = oldp + j * f_xsize;
+      const double *row_below = oldp + (j + 1) * f_xsize;
+      double *row_new = newp + j * f_xsize;
 
-        const double *restrict rc = row_center + i0;
-        const double *restrict ra = row_above + i0;
-        const double *restrict rb = row_below + i0;
-        double *restrict rn = row_new + i0;
+      /* inner loop exactly same shape as your original -> vectorizable */
+      for (uint i = i0; i <= i1; ++i) {
+        const double center = row_center[i];
+        const double left = row_center[i - 1];
+        const double right = row_center[i + 1];
+        const double up = row_above[i];
+        const double down = row_below[i];
 
-// Use simd; compiler sees contiguous i loop
-#pragma omp simd aligned(rc, ra, rb, rn : 64)
-        for (uint ii = 0; ii <= i1 - i0; ++ii) {
-          const double c = rc[ii];
-          const double l = rc[ii - 1];
-          const double r = rc[ii + 1];
-          const double u = ra[ii];
-          const double d = rb[ii];
-          rn[ii] = c * c_center + (l + r + u + d) * c_neigh;
-        }
+        row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
       }
-    } // per-thread tile loop
-  } // end parallel
+    }
+  }
 
-  /* Parallel over tiles. each tile keeps inner i-loop contiguous for
-   * vectorization */
-  // #pragma omp parallel for schedule(static)
-  //   for (uint t = 0; t < total_tiles; ++t) {
-  //     const uint tj = t / nt_i; /* tile index in j */
-  //     const uint ti = t % nt_i; /* tile index in i  */
-  //
-  //     const uint j0 = tj * TILE_J + 1;
-  //     const uint i0 = ti * TILE_I + 1;
-  //
-  //     const uint j1 = (j0 + TILE_J - 1 <= ysize) ? (j0 + TILE_J - 1) : ysize;
-  //     const uint i1 = (i0 + TILE_I - 1 <= xsize) ? (i0 + TILE_I - 1) : xsize;
-  //
-  //     for (uint j = j0; j <= j1; ++j) {
-  //       const double *row_above = oldp + (j - 1) * f_xsize;
-  //       const double *row_center = oldp + j * f_xsize;
-  //       const double *row_below = oldp + (j + 1) * f_xsize;
-  //       double *row_new = newp + j * f_xsize;
-  //
-  //       /* inner loop exactly same shape as your original -> vectorizable */
-  //       for (uint i = i0; i <= i1; ++i) {
-  //         const double center = row_center[i];
-  //         const double left = row_center[i - 1];
-  //         const double right = row_center[i + 1];
-  //         const double up = row_above[i];
-  //         const double down = row_below[i];
-  //
-  //         row_new[i] = center * c_center + (left + right + up + down) *
-  //         c_neigh;
-  //       }
-  //     }
-  //   }
-  //
   /* preserve your periodic ghost-copy behavior exactly as before */
   if (periodic) {
     if (N[_x_] == 1) {
