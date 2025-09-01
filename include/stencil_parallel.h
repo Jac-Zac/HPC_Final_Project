@@ -28,17 +28,22 @@
 #define _y_ 1
 
 // TILES testing
-#define TILES
+// #define TILES
 
 #ifndef TILE_J
 /* tune: number of rows per tile (try 16..64) */
-// #define TILE_J 32
-#define TILE_J 16
+#define TILE_J 32
+// #define TILE_J 1
 #endif
 #ifndef TILE_I
 /* tune: cols per tile (must be multiple of vector width*unroll) */
-// #define TILE_I 256
 #define TILE_I 128
+// #define TILE_I 256
+// #define TILE_I 512
+// #define TILE_I 1024
+// #define TILE_I 2048
+// #define TILE_I 4096
+// #define TILE_I 8192
 #endif
 
 typedef unsigned int uint;

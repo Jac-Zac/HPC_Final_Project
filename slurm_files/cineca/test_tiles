@@ -1,0 +1,63 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=112
+#SBATCH --mem=10G
+##SBATCH --exclusive
+#SBATCH --partition=dcgp_usr_prod
+#SBATCH -A uTS25_Tornator_0
+#SBATCH -t 00:00:30
+#SBATCH --job-name=stencil_test_tiles
+
+# Set the executable name
+EXEC=./stencil_parallel
+
+# =======================================================
+# Load the required modules for GCC and OpenMPI
+module load openmpi/4.1.6--gcc--12.2.0
+
+# Set the executable name
+# EXEC=./stencil_parallel
+EXEC=./stencil_parallel
+
+# =======================================================
+# Set OpenMP environment variables
+# export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_NUM_THREADS=1
+export OMP_PLACES=cores
+# export OMP_PROC_BIND=spread
+export OMP_PROC_BIND=close
+export OMP_DISPLAY_AFFINITY=TRUE
+
+# Loading necessary module
+module load openMPI/5.0.5
+
+# Set the total number of MPI tasks
+TOTAL_MPI_TASKS=${SLURM_NTASKS}
+
+# Log the layout
+lscpu > cpu_layout_thin.log
+
+# Define the arguments for the executable
+# A medium-sized grid suitable for a single-node run
+ARGS="-x 20000 -y 20000 -n 50 -o 0"
+
+# Print run information
+echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
+echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
+
+# Compiling with logging the serial version
+make MODE=parallel TILE=1
+
+# Run the code using mpirun
+$EXEC $ARGS > ${OMP_NUM_THREADS}_TILED.log
+
+# Clean
+make clean
+
+# Compiling with logging the serial version
+make MODE=parallel TILE=0
+$EXEC $ARGS > genoa/${OMP_NUM_THREADS}_NOT_TILED.log
+
+# Clean up after
+make clean
