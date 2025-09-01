@@ -27,6 +27,20 @@
 #define _x_ 0
 #define _y_ 1
 
+// TILES testing
+#define TILES
+
+#ifndef TILE_J
+/* tune: number of rows per tile (try 16..64) */
+// #define TILE_J 32
+#define TILE_J 16
+#endif
+#ifndef TILE_I
+/* tune: cols per tile (must be multiple of vector width*unroll) */
+// #define TILE_I 256
+#define TILE_I 128
+#endif
+
 typedef unsigned int uint;
 
 typedef uint vec2_t[2];
@@ -233,7 +247,6 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
 
 // replace your update_plane with this version
 
-#define TILES
 #ifndef TILES
 inline int update_plane(const int periodic,
                         const vec2_t N, // MPI grid of ranks
@@ -325,17 +338,6 @@ inline int update_plane(const int periodic,
 
 #else
 /* Replace your update_plane with this version (drop-in) */
-
-#ifndef TILE_J
-/* tune: number of rows per tile (try 16..64) */
-// #define TILE_J 32
-#define TILE_J 16
-#endif
-#ifndef TILE_I
-/* tune: cols per tile (must be multiple of vector width*unroll) */
-// #define TILE_I 256
-#define TILE_I 128
-#endif
 
 inline int update_plane(const int periodic, const vec2_t N,
                         const plane_t *oldplane, plane_t *newplane) {

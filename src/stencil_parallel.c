@@ -688,12 +688,48 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   // memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
   // memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
 
+#ifndef TILES
   // Initialize memory by touching it correctly
 #pragma omp parallel for schedule(static)
   for (unsigned int i = 0; i < frame_size; i++) {
     planes_ptr[OLD].data[i] = 0.0;
     planes_ptr[NEW].data[i] = 0.0;
   }
+#else
+
+  // Local plane dimensions (without halos)
+  const uint xsize = planes_ptr[OLD].size[_x_];
+  const uint ysize = planes_ptr[OLD].size[_y_];
+  // Full plane dimensions (with halos)
+  const uint f_xsize = xsize + 2;
+
+  // Calculate tile layout
+  const uint nt_i = (xsize + TILE_I - 1) / TILE_I;
+  const uint nt_j = (ysize + TILE_J - 1) / TILE_J;
+  const uint total_tiles = nt_i * nt_j;
+// Initialize memory using the same parallel tile decomposition
+#pragma omp parallel for schedule(static)
+  for (uint t = 0; t < total_tiles; ++t) {
+    const uint tj = t / nt_i; // tile index in j
+    const uint ti = t % nt_i; // tile index in i
+
+    // Calculate start and end indices for this tile (in the non-halo grid)
+    const uint j0 = tj * TILE_J + 1;
+    const uint i0 = ti * TILE_I + 1;
+
+    const uint j1 = (j0 + TILE_J - 1 <= ysize) ? (j0 + TILE_J - 1) : ysize;
+    const uint i1 = (i0 + TILE_I - 1 <= xsize) ? (i0 + TILE_I - 1) : xsize;
+
+    // Iterate within the tile and initialize memory
+    for (uint j = j0; j <= j1; ++j) {
+      for (uint i = i0; i <= i1; ++i) {
+        const uint index = j * f_xsize + i;
+        planes_ptr[OLD].data[index] = 0.0;
+        planes_ptr[NEW].data[index] = 0.0;
+      }
+    }
+  }
+#endif
 
   // ··················································
   // NOTE: This comment is done by the professor
