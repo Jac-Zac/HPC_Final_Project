@@ -67,9 +67,12 @@ int memory_release(plane_t *, buffers_t *);
 
 int output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 
-// extern int dump_global_grid(const plane_t *plane, const vec2_t my_size,
-//                             const vec2_t global_size, const vec2_t coords,
-//                             MPI_Comm Comm, const char *filename);
+// int dump_global_grid(const plane_t *plane, // local plane
+//                      const uint size[2],   // local patch size
+//                      const vec2_t S,       // global size
+//                      const vec2_t coords,  // MPI grid coords of this rank
+//                      MPI_Comm Comm,        // communicator
+//                      const char *filename);
 
 inline void inject_energy(const int periodic, const int Nsources,
                           const vec2_t *Sources, const double energy,
@@ -247,8 +250,10 @@ inline int update_plane_tiled(const int periodic,
   const double c_neigh = 0.125;
 
   /* Tiling params: tune these. Good starting values: TI = 512, TJ = 64 */
-  const uint TI = 512; /* tile width in i (columns) */
-  const uint TJ = 64;  /* tile height in j (rows)  */
+  // const uint TI = 512; /* tile width in i (columns) */
+  // const uint TJ = 64;  /* tile height in j (rows)  */
+  const uint TI = 1024; /* tile width in i (columns) */
+  const uint TJ = 64;   /* tile height in j (rows)  */
 
   /* Hint alignment to compiler (assume caller allocated 64-byte aligned) */
   const double *const oldp_a =
@@ -274,8 +279,8 @@ inline int update_plane_tiled(const int periodic,
 
         /* Hint to compiler: these pointers are 64-byte aligned and inner loop
          * is SIMD-friendly */
-        // #pragma omp simd aligned(row_above, row_center, row_below, row_new :
-        // 64)
+        // #pragma omp simd aligned(row_above, row_center, row_below, row_new
+        // : 64)
         for (uint i = ib; i <= iend; ++i) {
           const double center = row_center[i];
           const double left = row_center[i - 1];
