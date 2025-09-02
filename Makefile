@@ -43,7 +43,7 @@ test: all
 # Clean built executables
 clean:
 	rm -f stencil_parallel stencil_serial *.bin 
-	rm -rf *.dSYM
+	rm -rf *.dSYM .pytest_cache
 
 # Help target
 help:
