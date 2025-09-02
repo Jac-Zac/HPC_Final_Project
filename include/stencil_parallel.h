@@ -27,25 +27,6 @@
 #define _x_ 0
 #define _y_ 1
 
-// TILES testing
-// #define TILES
-
-#ifndef TILE_J
-/* tune: number of rows per tile (try 16..64) */
-#define TILE_J 32
-// #define TILE_J 1
-#endif
-#ifndef TILE_I
-/* tune: cols per tile (must be multiple of vector width*unroll) */
-#define TILE_I 128
-// #define TILE_I 256
-// #define TILE_I 512
-// #define TILE_I 1024
-// #define TILE_I 2048
-// #define TILE_I 4096
-// #define TILE_I 8192
-#endif
-
 typedef unsigned int uint;
 
 typedef uint vec2_t[2];
@@ -252,7 +233,6 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
 
 // replace your update_plane with this version
 
-#ifndef TILES
 inline int update_plane(const int periodic,
                         const vec2_t N, // MPI grid of ranks
                         const plane_t *oldplane, plane_t *newplane) {
@@ -340,89 +320,6 @@ inline int update_plane(const int periodic,
 
   return 0;
 }
-
-#else
-/* Replace your update_plane with this version (drop-in) */
-
-#include <stdint.h> // For uint definitions if not already included
-
-// --- Tunable Parameter ---
-// The number of consecutive rows each thread works on.
-// This should be tuned to fit within the L1 or L2 cache.
-// Good values to test are typically powers of two, e.g., 8, 16, 32.
-#define STRIP_HEIGHT 32
-
-inline int update_plane(const int periodic,
-                        const vec2_t N, // MPI grid of ranks
-                        const plane_t *oldplane, plane_t *newplane) {
-
-  const uint f_xsize = oldplane->size[_x_] + 2;
-  const uint xsize = oldplane->size[_x_];
-  const uint ysize = oldplane->size[_y_];
-
-  double *restrict newp = newplane->data;
-  const double *restrict oldp = oldplane->data;
-
-  // Pre-compute stencil coefficients
-  const double c_center = 0.5;
-  const double c_neigh = 0.125;
-
-// Parallelize over vertical "strips" of the grid.
-// Each thread takes a full strip and computes it, maximizing cache reuse.
-#pragma omp parallel for schedule(static)
-  for (uint j_strip = 1; j_strip <= ysize; j_strip += STRIP_HEIGHT) {
-
-    // Determine the actual end row for this strip to handle boundary cases
-    const uint j_end = (j_strip + STRIP_HEIGHT - 1 < ysize)
-                           ? (j_strip + STRIP_HEIGHT - 1)
-                           : ysize;
-
-    // Loop over the rows within this thread's assigned strip
-    for (uint j = j_strip; j <= j_end; ++j) {
-      const double *row_above = oldp + (j - 1) * f_xsize;
-      const double *row_center = oldp + j * f_xsize;
-      const double *row_below = oldp + (j + 1) * f_xsize;
-      double *row_new = newp + j * f_xsize;
-
-      // The inner loop remains the same, ensuring it can be vectorized
-      for (uint i = 1; i <= xsize; ++i) {
-        const double center = row_center[i];
-        const double left = row_center[i - 1];
-        const double right = row_center[i + 1];
-        const double up = row_above[i];
-        const double down = row_below[i];
-
-        row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-      }
-    }
-  }
-
-  // Periodic boundary condition handling remains exactly the same
-  if (periodic) {
-    if (N[_x_] == 1) {
-      for (uint j = 1; j <= ysize; ++j) {
-        double *row = newp + j * f_xsize;
-        row[0] = row[xsize];
-        row[xsize + 1] = row[1];
-      }
-    }
-    if (N[_y_] == 1) {
-      double *row_top = newp + 1 * f_xsize;
-      double *row_bottom = newp + ysize * f_xsize;
-      double *row_topghost = newp + 0 * f_xsize;
-      double *row_bottomghost = newp + (ysize + 1) * f_xsize;
-
-      for (uint i = 1; i <= xsize; ++i) {
-        row_topghost[i] = row_bottom[i];
-        row_bottomghost[i] = row_top[i];
-      }
-    }
-  }
-
-  return 0;
-}
-
-#endif
 
 inline int get_total_energy(plane_t *plane, double *energy) {
 

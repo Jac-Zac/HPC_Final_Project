@@ -10,11 +10,6 @@ MPICC = mpicc
 # CFLAGS = -O1 -Wall -Wextra -fopenmp -Iinclude -fno-tree-vectorize -g
 CFLAGS = -O3 -Wall -Wextra -march=native -fopenmp -Iinclude -g
 
-# Add tiled flag if requested
-ifeq ($(TILE),1)
-    CFLAGS += -DTILES
-endif
-
 # Source files
 PARALLEL_SRC = src/stencil_parallel.c
 SERIAL_SRC   = src/stencil_serial.c
