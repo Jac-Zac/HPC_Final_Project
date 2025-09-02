@@ -124,8 +124,8 @@ int main(int argc, char **argv) {
     t_comp_start = MPI_Wtime();
 
     // update grid points
-    // update_plane(periodic, N, &planes[current], &planes[!current]);
-    update_plane_tiled(periodic, N, &planes[current], &planes[!current]);
+    update_plane(periodic, N, &planes[current], &planes[!current]);
+    // update_plane_tiled(periodic, N, &planes[current], &planes[!current]);
 
     comp_times[iter] = MPI_Wtime() - t_comp_start;
 
@@ -811,6 +811,9 @@ int output_energy_stat(int step, plane_t *plane, double budget, int Me,
 
   return 0;
 }
+
+// NOTE: AI Generated code from this part onward
+// ---------------------------------------------
 
 int dump_global_grid(
     const plane_t *plane,    // local plane

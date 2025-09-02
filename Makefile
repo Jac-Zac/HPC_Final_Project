@@ -36,7 +36,7 @@ $(BASENAME):
 	$(MPICC) $(CFLAGS) $(SRC) -o $(BASENAME)
 
 test: all
-	mpirun -np 4 ./stencil_parallel -t 1 -x 100 -y 100 -n 50 -o 1 -p 0
+	mpirun -np 4 ./stencil_parallel -x 100 -y 100 -n 50 -o 1 -p 0 -t 1
 	source .env/bin/activate && pytest -v tests
 	$(MAKE) clean
 
