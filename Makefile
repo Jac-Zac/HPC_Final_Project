@@ -37,7 +37,7 @@ $(BASENAME):
 
 test: all
 	mpirun -np 4 stencil_parallel -x 100 -y 100 -n 50 -o 1 -e 4 -s 1337
-	pytest -v tests
+	source .env/bin/activate && pytest -v tests
 	rm -f stencil_parallel stencil_serial *.bin
 	rm -rf .pytest_cache
 

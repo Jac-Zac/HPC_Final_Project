@@ -67,12 +67,13 @@ int memory_release(plane_t *, buffers_t *);
 
 int output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 
-// int dump_global_grid(const plane_t *plane, // local plane
-//                      const uint size[2],   // local patch size
-//                      const vec2_t S,       // global size
-//                      const vec2_t coords,  // MPI grid coords of this rank
-//                      MPI_Comm Comm,        // communicator
-//                      const char *filename);
+int dump_global_grid(const plane_t *plane,    // local plane
+                     const vec2_t local_size, // local patch size
+                     const vec2_t S,          // global size
+                     const vec2_t coords,     // rank coordinates in MPI grid
+                     const vec2_t grid_dims,  // MPI grid dimensions
+                     MPI_Comm Comm,           // communicator
+                     const char *filename);
 
 inline void inject_energy(const int periodic, const int Nsources,
                           const vec2_t *Sources, const double energy,

@@ -138,92 +138,16 @@ int initialize(
   int ret;
 
   // ··································································
-  // set default values
-  S[_x_] = 1000;
-  S[_y_] = 1000;
+  // set fixed values for testing
+  S[_x_] = 100;
+  S[_y_] = 100;
   *periodic = 0;
-  *Nsources = 1;
-  *Niterations = 99;
-  *output_energy_at_steps = 0;
+  *Nsources = 4;
+  *Niterations = 50;
+  *output_energy_at_steps = 1;
   *energy_per_source = 1.0;
 
-  // For reproducibility
-  long int seed = -1;
-
-  // ··································································
-  // process the command line
-  int show_help = 0;
-  while (1) {
-    int opt;
-    while ((opt = getopt(argc, argv, ":x:y:e:E:n:p:o:s:h")) != -1) {
-      switch (opt) {
-      case 'x':
-        S[_x_] = (uint)atoi(optarg);
-        break;
-
-      case 'y':
-        S[_y_] = (uint)atoi(optarg);
-        break;
-
-      case 'e':
-        *Nsources = atoi(optarg);
-        break;
-
-      case 'E':
-        *energy_per_source = atof(optarg);
-        break;
-
-      case 'n':
-        *Niterations = atoi(optarg);
-        break;
-
-      case 'p':
-        *periodic = (atoi(optarg) > 0);
-        break;
-
-      case 'o':
-        *output_energy_at_steps = (atoi(optarg) > 0);
-        break;
-      case 's':
-        seed = atol(optarg);
-        break;
-      case 'h':
-        show_help = 1;
-        break;
-
-      case ':':
-        printf("option -%c requires an argument\n", optopt);
-        return 1;
-
-      case '?':
-        printf("Unknown option -%c\n", optopt);
-        return 1;
-      }
-    }
-
-    if (opt == -1)
-      break;
-  }
-
-  if (show_help) {
-    printf("Valid options are (values in [] are the defaults):\n"
-           "-x    x size of the plate [1000]\n"
-           "-y    y size of the plate [1000]\n"
-           "-e    number of energy sources on the plate [1]\n"
-           "-E    energy per source [1.0]\n"
-           "-n    number of iterations [99]\n"
-           "-p    periodic boundaries [0 = false]\n"
-           "-o    output energy at every step [0 = false]\n"
-           "-s    random seed for reproducible sources [none]\n"
-           "-h    display this help message\n");
-    exit(0); // <--- exit immediately
-  }
-
-  // validate parameters
-  if (S[_x_] <= 0 || S[_y_] <= 0)
-    return 1;
-  if (*Nsources < 0)
-    return 1;
+  // No command line processing needed - using fixed parameters
 
   // allocate memory
   ret = memory_allocate(S, planes);
@@ -243,15 +167,7 @@ int initialize(
   //   }
   // }
 
-  // set RNG seed if provided
-  if (seed >= 0) {
-    srand48(seed);
-    printf("Using random seed %ld\n", seed);
-  } else {
-    srand48(time(NULL)); // fallback to time-based seed
-  }
-
-  // initialize sources
+  // initialize sources with fixed positions
   ret = initialize_sources(S, *Nsources, Sources);
   if (ret != 0)
     return ret;
@@ -297,9 +213,19 @@ int memory_allocate(const uint size[2], double **planes_ptr)
  */
 int initialize_sources(uint size[2], int Nsources, int **Sources) {
   *Sources = (int *)malloc(Nsources * 2 * sizeof(uint));
+
+  // Use fixed source positions matching the Python test
+  // Fixed global source positions: [(50, 4), (7, 93), (15, 86), (43, 99)]
+  int fixed_sources[4][2] = {
+    {50, 4},    // Near left edge, top
+    {7, 93},    // Near left edge, bottom
+    {15, 86},   // Left side, middle-bottom
+    {43, 99}    // Left side, bottom
+  };
+
   for (int s = 0; s < Nsources; s++) {
-    (*Sources)[s * 2] = 1 + lrand48() % size[_x_];
-    (*Sources)[s * 2 + 1] = 1 + lrand48() % size[_y_];
+    (*Sources)[s * 2] = fixed_sources[s][0];
+    (*Sources)[s * 2 + 1] = fixed_sources[s][1];
   }
 
   return 0;

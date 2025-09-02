@@ -91,8 +91,6 @@ inline int inject_energy(const int periodic, const int Nsources,
   return 0;
 }
 
-#define TILING
-#ifndef TILING
 /*
  * calculate the new energy values
  * the old plane contains the current data, the new plane
@@ -202,72 +200,6 @@ goes below zero energy alpha /= 2; } while (!done);
 
   return 0;
 }
-
-#else
-
-inline int update_plane(const int periodic, const uint size[2],
-                        const double *old_points, double *new_points) {
-
-  // clang: ISO C++17 does not allow 'register' storage class specifier
-  const int f_xsize = size[_x_] + 2;
-  const int x_size = size[_x_];
-  const int y_size = size[_y_];
-
-  // Pre-compute constants to avoid repeated calculations
-  const double alpha = 0.5;
-  const double beta = (1.0 - alpha) * 0.25; // (1-alpha)/4
-
-  // #pragma omp parallel for schedule(static)
-  for (int j = 1; j <= y_size; j++) {
-    const double *row_above = old_points + (j - 1) * f_xsize;
-    const double *row_center = old_points + j * f_xsize;
-    const double *row_below = old_points + (j + 1) * f_xsize;
-    double *row_new = new_points + j * f_xsize;
-
-    for (int i = 1; i <= x_size; i++) {
-      // Five-point stencil
-      // five-points stencil formula
-
-      // however the implicit methods are not stable
-      const double center = row_center[i];
-      const double left = row_center[i - 1];
-      const double right = row_center[i + 1];
-      const double up = row_above[i];
-      const double down = row_below[i];
-
-      row_new[i] = center * alpha + beta * (left + right + up + down);
-    }
-  }
-
-  // Periodic boundary propagation
-  if (periodic) {
-    // Top & bottom wrap
-    double *row_top = new_points + 1 * f_xsize;
-    double *row_bottom = new_points + y_size * f_xsize;
-    double *row_topghost = new_points + 0 * f_xsize;
-    double *row_bottomghost = new_points + (y_size + 1) * f_xsize;
-
-    for (int i = 1; i <= x_size; i++) {
-      row_topghost[i] = row_bottom[i];
-      row_bottomghost[i] = row_top[i];
-    }
-
-    // Left & right wrap
-    for (int j = 1; j <= y_size; j++) {
-      double *row = new_points + j * f_xsize;
-      row[0] = row[x_size];     // left ghost = right boundary
-      row[x_size + 1] = row[1]; // right ghost = left boundary
-    }
-  }
-
-  return 0;
-}
-
-// Don't forget to undefine the macro if it's in a header file
-// to avoid potential conflicts with other code.
-#undef min
-
-#endif
 
 /*
  * NOTE: this routine a good candidate for openmp

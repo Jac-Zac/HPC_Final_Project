@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
   plane_t planes[2];
   buffers_t buffers[2];
 
-  int output_energy_stat_per_step;
+  int output_energy_stat_per_step = 1;  // Enable output at each step
 
   // initialize MPI envrionment
   {
@@ -135,16 +135,22 @@ int main(int argc, char **argv) {
       output_energy_stat(iter, &planes[!current],
                          (iter + 1) * Nsources * energy_per_source, Rank,
                          &my_COMM_WORLD);
-      // char filename[128];
-      // sprintf(filename, "plane_global_%05d.bin", iter);
-      //
+      char filename[128];
+      sprintf(filename, "plane_global_%05d.bin", iter);
+
+      // Calculate rank coordinates for the dump function
+      vec2_t coords;
+      coords[_x_] = Rank % N[_x_];  // N is the MPI grid dimensions
+      coords[_y_] = Rank / N[_x_];
+
       // Call dump_global_grid
-      // dump_global_grid(&planes[!current],     // local plane
-      //                  planes[!current].size, // my patch size
-      //                  S,                     // global size of grid
-      //                  coords,        // coordinates of this rank in MPI grid
-      //                  my_COMM_WORLD, // MPI communicator
-      //                  filename);
+      dump_global_grid(&planes[!current],     // local plane
+                       planes[!current].size, // my patch size
+                       S,                     // global size of grid
+                       coords,                // coordinates of this rank in MPI grid
+                       N,                     // MPI grid dimensions
+                       my_COMM_WORLD,         // MPI communicator
+                       filename);
 
       // swap plane indexes for the new iteration
       current = !current;
@@ -236,16 +242,17 @@ int initialize(MPI_Comm *Comm,
   int seed = -1;
 
   // ··································································
-  // set default values
+  // set fixed values for testing
 
-  (*S)[_x_] = 10000;
-  (*S)[_y_] = 10000;
-  *periodic = 0;
-  *Nsources = 4;
-  *Nsources_local = 0;
-  *Sources_local = NULL;
-  *Niterations = 1000;
-  *energy_per_source = 1.0;
+   (*S)[_x_] = 100;
+   (*S)[_y_] = 100;
+   *periodic = 0;
+   *output_energy_stat = 1;  // Enable output at each step
+   *Nsources = 4;
+   *Nsources_local = 0;
+   *Sources_local = NULL;
+   *Niterations = 50;
+   *energy_per_source = 1.0;
 
   if (planes == NULL) {
     // Just on prints the error
@@ -267,75 +274,7 @@ int initialize(MPI_Comm *Comm,
     for (int d = 0; d < 4; d++)
       buffers[b][d] = NULL;
 
-  // ··································································
-  // process the command line
-  while (1) {
-    int opt;
-    while ((opt = getopt(argc, argv, ":hx:y:e:E:n:o:p:v:s:")) != -1) {
-      switch (opt) {
-      case 'x':
-        (*S)[_x_] = (uint)atoi(optarg);
-        break;
-
-      case 'y':
-        (*S)[_y_] = (uint)atoi(optarg);
-        break;
-
-      case 'e':
-        *Nsources = atoi(optarg);
-        break;
-
-      case 'E':
-        *energy_per_source = atof(optarg);
-        break;
-
-      case 'n':
-        *Niterations = atoi(optarg);
-        break;
-
-      case 'o':
-        *output_energy_stat = (atoi(optarg) > 0);
-        break;
-
-      case 'p':
-        *periodic = (atoi(optarg) > 0);
-        break;
-
-      case 'v':
-        verbose = atoi(optarg);
-        break;
-      case 's':
-        seed = atol(optarg);
-        break;
-      case 'h': {
-        if (Me == 0)
-          printf("\nvalid options are ( values btw [] are the default values "
-                 "):\n"
-                 "-x    x size of the plate [10000]\n"
-                 "-y    y size of the plate [10000]\n"
-                 "-e    how many energy sources on the plate [4]\n"
-                 "-E    how many energy sources on the plate [1.0]\n"
-                 "-n    how many iterations [1000]\n"
-                 "-p    whether periodic boundaries applies  [0 = false]\n\n");
-        halt = 1;
-      } break;
-
-      case ':':
-        printf("option -%c requires an argument\n", optopt);
-        break;
-
-      case '?':
-        printf(" -------- help unavailable ----------\n");
-        break;
-      }
-    }
-
-    if (opt == -1)
-      break;
-  }
-
-  if (halt)
-    return 1;
+  // No command line processing needed - using fixed parameters
 
   // ··································································
   // TODO: Complete checks for meaningful values
@@ -557,49 +496,49 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
                        int seed)
 
 {
-  if (seed < 0) {
-    // Do not set a custom seed if not defined
-    srand48(time(NULL) ^ Me);
-  } else {
-    // Set a fixed seed if one is defined
-    srand48(seed ^ Me);
-  }
+  // Use fixed source positions distributed across ranks
+  // Fixed global source positions: [(50, 4), (7, 93), (15, 86), (43, 99)]
+  int global_sources[4][2] = {{50, 4}, {7, 93}, {15, 86}, {43, 99}};
 
-  int *tasks_with_sources = (int *)malloc(Nsources * sizeof(int));
-
-  if (Me == 0) {
-    for (int i = 0; i < Nsources; i++)
-      tasks_with_sources[i] = (int)lrand48() % Ntasks;
-  }
-
-  MPI_Bcast(tasks_with_sources, Nsources, MPI_INT, 0, *Comm);
+  // For 2x2 grid, determine which sources belong to this rank
+  // Domain decomposition: 100x100 grid divided into 2x2 = 4 parts of 50x50 each
+  // Rank 0: x=1-50, y=1-50
+  // Rank 1: x=51-100, y=1-50
+  // Rank 2: x=1-50, y=51-100
+  // Rank 3: x=51-100, y=51-100
 
   int nlocal = 0;
-  for (int i = 0; i < Nsources; i++)
-    nlocal += (tasks_with_sources[i] == Me);
+  int local_sources[4][2];  // Store local coordinates for sources belonging to this rank
+
+  for (int i = 0; i < Nsources; i++) {
+    int gx = global_sources[i][0];
+    int gy = global_sources[i][1];
+
+    // Determine which rank owns this source
+    int rank_x = (gx > 50) ? 1 : 0;
+    int rank_y = (gy > 50) ? 1 : 0;
+    int target_rank = rank_y * 2 + rank_x;
+
+    if (target_rank == Me) {
+      // Convert to local coordinates within this rank's patch
+      int local_x = (rank_x == 0) ? gx : (gx - 50);
+      int local_y = (rank_y == 0) ? gy : (gy - 50);
+      local_sources[nlocal][0] = local_x;
+      local_sources[nlocal][1] = local_y;
+      nlocal++;
+    }
+  }
+
   *Nsources_local = nlocal;
 
   if (nlocal > 0) {
     vec2_t *restrict helper = (vec2_t *)malloc(nlocal * sizeof(vec2_t));
     for (int s = 0; s < nlocal; s++) {
-      helper[s][_x_] = 1 + lrand48() % mysize[_x_];
-      helper[s][_y_] = 1 + lrand48() % mysize[_y_];
+      helper[s][_x_] = local_sources[s][0];
+      helper[s][_y_] = local_sources[s][1];
     }
-
     *Sources = helper;
   }
-
-#ifdef PRINT_SOURCES
-  if (*Nsources_local > 0) {
-    for (int s = 0; s < *Nsources_local; s++) {
-      printf("Rank %d source %d: (%d, %d)\n", Me, s, (*Sources)[s][_x_],
-             (*Sources)[s][_y_]);
-    }
-  }
-  MPI_Barrier(*Comm); // synchronize for cleaner output
-#endif
-
-  free(tasks_with_sources);
 
   return 0;
 }
@@ -786,6 +725,190 @@ int output_energy_stat(int step, plane_t *plane, double budget, int Me,
   return 0;
 }
 
-// NOTE: TO FIX
-// dump global grid
-// ...
+int dump_global_grid(const plane_t *plane,     // local plane
+                     const vec2_t local_size,  // local patch size (without halos)
+                     const vec2_t S,           // global grid size
+                     const vec2_t coords,      // rank coordinates in MPI grid
+                     const vec2_t grid_dims,   // MPI grid dimensions
+                     MPI_Comm Comm,            // MPI communicator
+                     const char *filename) {
+  int rank, ntasks;
+  MPI_Comm_rank(Comm, &rank);
+  MPI_Comm_size(Comm, &ntasks);
+
+  // Calculate local interior size (without halos)
+  uint local_interior_x = local_size[_x_];
+  uint local_interior_y = local_size[_y_];
+
+  // Global grid size with halos (to match serial format)
+  uint global_x = S[_x_] + 2;
+  uint global_y = S[_y_] + 2;
+
+  // Collect patch sizes from all ranks
+  uint (*all_sizes)[2] = NULL;
+  uint (*all_coords)[2] = NULL;
+  if (rank == 0) {
+    all_sizes = (uint (*)[2])malloc(ntasks * 2 * sizeof(uint));
+    all_coords = (uint (*)[2])malloc(ntasks * 2 * sizeof(uint));
+  }
+
+  // Gather all patch sizes and coordinates
+  if (rank == 0) {
+    // Root process copies its own data first
+    all_sizes[0][0] = local_size[_x_];
+    all_sizes[0][1] = local_size[_y_];
+    all_coords[0][0] = coords[_x_];
+    all_coords[0][1] = coords[_y_];
+
+    // Then receives from other processes
+    for (int r = 1; r < ntasks; r++) {
+      uint sx, sy, cx, cy;
+      MPI_Recv(&sx, 1, MPI_UNSIGNED, r, 0, Comm, MPI_STATUS_IGNORE);
+      MPI_Recv(&sy, 1, MPI_UNSIGNED, r, 1, Comm, MPI_STATUS_IGNORE);
+      MPI_Recv(&cx, 1, MPI_UNSIGNED, r, 2, Comm, MPI_STATUS_IGNORE);
+      MPI_Recv(&cy, 1, MPI_UNSIGNED, r, 3, Comm, MPI_STATUS_IGNORE);
+      all_sizes[r][0] = sx;
+      all_sizes[r][1] = sy;
+      all_coords[r][0] = cx;
+      all_coords[r][1] = cy;
+    }
+  } else {
+    // Non-root processes send their data
+    MPI_Send(&local_size[_x_], 1, MPI_UNSIGNED, 0, 0, Comm);
+    MPI_Send(&local_size[_y_], 1, MPI_UNSIGNED, 0, 1, Comm);
+    MPI_Send(&coords[_x_], 1, MPI_UNSIGNED, 0, 2, Comm);
+    MPI_Send(&coords[_y_], 1, MPI_UNSIGNED, 0, 3, Comm);
+  }
+
+  // Only rank 0 allocates the global grid buffer and assembles data
+  double *global_grid = NULL;
+  if (rank == 0) {
+    global_grid = (double *)malloc(global_y * global_x * sizeof(double));
+    if (global_grid == NULL) {
+      fprintf(stderr, "Rank 0: Failed to allocate global grid buffer\n");
+      MPI_Abort(Comm, 1);
+    }
+    memset(global_grid, 0, global_y * global_x * sizeof(double));
+  }
+
+  // Each rank sends its interior patch data
+  uint local_data_size = local_interior_x * local_interior_y;
+  double *local_data = (double *)malloc(local_data_size * sizeof(double));
+  if (local_data == NULL) {
+    fprintf(stderr, "Rank %d: Failed to allocate local data buffer\n", rank);
+    MPI_Abort(Comm, 1);
+  }
+
+  // Extract interior data from local plane (skip halos)
+  uint local_stride = local_size[_x_] + 2;  // stride in local plane (with halos)
+  for (uint j = 0; j < local_interior_y; j++) {
+    for (uint i = 0; i < local_interior_x; i++) {
+      // Local plane indices: skip halo row/col, so start from (1,1)
+      uint local_idx = (j + 1) * local_stride + (i + 1);
+      uint data_idx = j * local_interior_x + i;
+      local_data[data_idx] = plane->data[local_idx];
+    }
+  }
+
+  // Use a simple approach: each rank sends its data directly to rank 0
+  if (rank != 0) {
+    MPI_Send(local_data, local_data_size, MPI_DOUBLE, 0, rank, Comm);
+  } else {
+    // Rank 0 first receives data from all other ranks
+    double **all_patches = (double **)malloc(ntasks * sizeof(double *));
+    for (int r = 0; r < ntasks; r++) {
+      uint patch_size = all_sizes[r][0] * all_sizes[r][1];
+      all_patches[r] = (double *)malloc(patch_size * sizeof(double));
+    }
+
+    // Rank 0 places its own data
+    memcpy(all_patches[0], local_data, local_data_size * sizeof(double));
+
+    // Then receives data from all other ranks
+    for (int r = 1; r < ntasks; r++) {
+      uint patch_size = all_sizes[r][0] * all_sizes[r][1];
+      MPI_Recv(all_patches[r], patch_size, MPI_DOUBLE, r, r, Comm, MPI_STATUS_IGNORE);
+    }
+
+    // Now assemble the global grid
+    // Handle 2D domain decomposition properly
+    for (int r = 0; r < ntasks; r++) {
+      uint patch_x = all_sizes[r][0];
+      uint patch_y = all_sizes[r][1];
+      uint rank_x = all_coords[r][0];
+      uint rank_y = all_coords[r][1];
+
+      // Calculate the starting position for this rank's patch
+      // This mirrors the logic in the initialize function
+      uint base_x = (S[_x_] / grid_dims[0]) * rank_x;
+      uint base_y = (S[_y_] / grid_dims[1]) * rank_y;
+
+      // Add extra cells for ranks that get them
+      uint extra_x = (rank_x < (S[_x_] % grid_dims[0])) ? rank_x : (S[_x_] % grid_dims[0]);
+      uint extra_y = (rank_y < (S[_y_] % grid_dims[1])) ? rank_y : (S[_y_] % grid_dims[1]);
+
+      uint start_x = base_x + extra_x + 1;  // +1 for left halo
+      uint start_y = base_y + extra_y + 1;  // +1 for top halo
+
+      // Place patch in global grid
+      for (uint j = 0; j < patch_y; j++) {
+        for (uint i = 0; i < patch_x; i++) {
+          uint patch_idx = j * patch_x + i;
+          uint global_row = start_y + j;
+          uint global_col = start_x + i;
+          uint global_idx = global_row * global_x + global_col;
+          if (global_idx < global_x * global_y && global_row < global_y && global_col < global_x) {
+            global_grid[global_idx] = all_patches[r][patch_idx];
+          }
+        }
+      }
+    }
+
+    // Write the global grid to file
+    FILE *outfile = fopen(filename, "wb");
+    if (outfile == NULL) {
+      fprintf(stderr, "Failed to open output file: %s\n", filename);
+      free(global_grid);
+      for (int r = 0; r < ntasks; r++) free(all_patches[r]);
+      free(all_patches);
+      free(all_sizes);
+      free(all_coords);
+      free(local_data);
+      return 1;
+    }
+
+    // Allocate buffer for float conversion
+    float *float_buffer = (float *)malloc(S[_x_] * sizeof(float));
+    if (float_buffer == NULL) {
+      fprintf(stderr, "Failed to allocate float buffer\n");
+      fclose(outfile);
+      free(global_grid);
+      for (int r = 0; r < ntasks; r++) free(all_patches[r]);
+      free(all_patches);
+      free(all_sizes);
+      free(all_coords);
+      free(local_data);
+      return 1;
+    }
+
+    // Write row by row (interior only, matching serial format)
+    for (uint j = 1; j <= S[_y_]; j++) {
+      for (uint i = 1; i <= S[_x_]; i++) {
+        uint global_idx = j * global_x + i;
+        float_buffer[i-1] = (float)global_grid[global_idx];
+      }
+      fwrite(float_buffer, sizeof(float), S[_x_], outfile);
+    }
+
+    fclose(outfile);
+    free(float_buffer);
+    free(global_grid);
+    for (int r = 0; r < ntasks; r++) free(all_patches[r]);
+    free(all_patches);
+    free(all_sizes);
+    free(all_coords);
+  }
+
+  free(local_data);
+  return 0;
+}

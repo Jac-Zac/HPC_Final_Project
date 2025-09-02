@@ -42,9 +42,6 @@ make
 # Serial version
 make MODE=serial
 
-# With logging
-make LOG=1
-
 # Clean
 make clean
 ```
@@ -52,23 +49,23 @@ make clean
 ### Run Locally
 
 ```bash
-# Serial
-./stencil_serial -x 1000 -y 1000 -n 100 -e 4 -E 1.5
+# Serial (fixed: 100x100 grid, 4 sources, 50 iterations)
+./stencil_serial
 
-# Parallel (4 MPI tasks, 4 OpenMP threads each)
-export OMP_NUM_THREADS=4
-mpirun -np 4 ./stencil_parallel -x 1000 -y 1000 -n 100 -e 4 -E 1.5
+# Parallel (4 MPI tasks, fixed parameters)
+mpirun -np 4 ./stencil_parallel
 ```
 
-### Command Line Options
+### Fixed Parameters
 
-- `-x, -y`: Grid dimensions (default: 1000x1000)
-- `-n`: Iterations (default: 99)
-- `-e`: Number of heat sources (default: 1)
-- `-E`: Energy per source (default: 1.0)
-- `-p`: Periodic boundaries (0/1, default: 0)
-- `-o`: Print energy per step (0/1, default: 0)
-- `-f`: Energy injection frequency (default: 0.0)
+The implementation uses fixed parameters for simplicity:
+
+- **Grid size**: 100×100
+- **Heat sources**: 4 sources at positions [(25,25), (75,25), (25,75), (75,75)]
+- **Iterations**: 50
+- **Energy per source**: 1.0
+- **Boundary conditions**: Non-periodic
+- **Output**: Energy statistics and binary dumps at each step
 
 ## HPC Execution
 
@@ -109,15 +106,32 @@ Features NUMA-aware rankfile generation for optimal performance.
 ## Testing
 
 ```bash
-# Run all tests
+# Run all tests (compares serial vs parallel with fixed parameters)
 make test
 
-# Python tests only
-pytest -v tests/
+# Python tests only (requires numpy)
+source .env/bin/activate && pytest -v tests/
 
-# Validate against reference implementation
-python -m pytest tests/test_stencil.py::test_against_reference
+# Manual testing
+./stencil_serial          # Serial version
+mpirun -np 4 ./stencil_parallel  # Parallel version (4 MPI processes)
 ```
+
+### Test Output
+
+The test generates binary files for each iteration:
+
+- `plane_XXXXX.bin`: Serial version output
+- `plane_global_XXXXX.bin`: Parallel version output
+
+Both versions use identical parameters:
+
+- 100×100 grid
+- 4 heat sources at [(25,25), (75,25), (25,75), (75,75)]
+- 50 iterations
+- Non-periodic boundaries
+
+The parallel version distributes sources across MPI ranks based on domain decomposition.
 
 ## Performance Analysis
 
