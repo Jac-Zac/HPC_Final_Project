@@ -1,6 +1,7 @@
 # macOS system files
 **/.DS_Store
 **.dSYM
+AGENTS.md
 
 # Python
 **/__pycache__/

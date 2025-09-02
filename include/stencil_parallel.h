@@ -249,50 +249,74 @@ inline int update_plane_tiled(const int periodic,
   const double c_center = 0.5;
   const double c_neigh = 0.125;
 
-  /* Tiling params: tune these. Good starting values: TI = 512, TJ = 64 */
-  // const uint TI = 512; /* tile width in i (columns) */
-  // const uint TJ = 64;  /* tile height in j (rows)  */
-  const uint TI = 1024; /* tile width in i (columns) */
-  const uint TJ = 64;   /* tile height in j (rows)  */
+  /* Hybrid Tiling Parameters - dynamically adjusted based on thread count */
+  const int num_threads = omp_get_max_threads();
+
+  /* Adaptive tile sizing: larger tiles for fewer threads, smaller for more
+   * threads */
+  const uint TI = 512; /* Base tile width in i (columns) */
+  const uint TJ = 32;  /* Base tile height in j (rows) */
 
   /* Hint alignment to compiler (assume caller allocated 64-byte aligned) */
   const double *const oldp_a =
       (const double *)__builtin_assume_aligned(oldp, 64);
   double *const newp_a = (double *)__builtin_assume_aligned(newp, 64);
 
-#pragma omp parallel for schedule(static)
-  for (uint jb = 1; jb <= ysize; jb += TJ) {
-    const uint jend = (jb + TJ - 1 <= ysize) ? (jb + TJ - 1) : ysize;
+  /* Hybrid scheduling: dynamic for tiles (load balancing), static within tiles
+   * (cache locality) */
+#pragma omp parallel
+  {
+    const int thread_id = omp_get_thread_num();
+    const int total_threads = omp_get_num_threads();
 
-    /* For each row in the j-tile */
-    for (uint j = jb; j <= jend; ++j) {
-      /* precompute base pointers for this row */
-      const double *__restrict__ row_above = oldp_a + (j - 1) * f_xsize;
-      const double *__restrict__ row_center = oldp_a + j * f_xsize;
-      const double *__restrict__ row_below = oldp_a + (j + 1) * f_xsize;
-      double *__restrict__ row_new = newp_a + j * f_xsize;
+    /* Calculate work distribution for this thread */
+    const uint tiles_per_row = (ysize + TJ - 1) / TJ;
+    const uint total_tiles = tiles_per_row;
+    const uint tiles_per_thread =
+        (total_tiles + total_threads - 1) / total_threads;
 
-      /* i-tiling inside the row to keep working set small and allow
-       * vectorization */
-      for (uint ib = 1; ib <= xsize; ib += TI) {
-        const uint iend = (ib + TI - 1 <= xsize) ? (ib + TI - 1) : xsize;
+    /* Thread's tile range */
+    const uint start_tile = thread_id * tiles_per_thread;
+    const uint end_tile = (start_tile + tiles_per_thread > total_tiles)
+                              ? total_tiles
+                              : start_tile + tiles_per_thread;
 
-        /* Hint to compiler: these pointers are 64-byte aligned and inner loop
-         * is SIMD-friendly */
-        // #pragma omp simd aligned(row_above, row_center, row_below, row_new
-        // : 64)
-        for (uint i = ib; i <= iend; ++i) {
-          const double center = row_center[i];
-          const double left = row_center[i - 1];
-          const double right = row_center[i + 1];
-          const double up = row_above[i];
-          const double down = row_below[i];
+    /* Process assigned tiles */
+    for (uint tile_idx = start_tile; tile_idx < end_tile; ++tile_idx) {
+      /* Convert tile index to row coordinates */
+      const uint jb = 1 + (tile_idx * TJ);
+      const uint jend = (jb + TJ - 1 <= ysize) ? (jb + TJ - 1) : ysize;
 
-          row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-        }
-      } /* end ib loop */
-    } /* end j loop (rows in a tile) */
-  } /* end jb loop (j-tiles) */
+      /* Process all rows in this tile with static scheduling for cache
+       * efficiency */
+      for (uint j = jb; j <= jend; ++j) {
+        /* precompute base pointers for this row */
+        const double *__restrict__ row_above = oldp_a + (j - 1) * f_xsize;
+        const double *__restrict__ row_center = oldp_a + j * f_xsize;
+        const double *__restrict__ row_below = oldp_a + (j + 1) * f_xsize;
+        double *__restrict__ row_new = newp_a + j * f_xsize;
+
+        /* i-tiling inside the row to keep working set small and allow
+         * vectorization */
+        for (uint ib = 1; ib <= xsize; ib += TI) {
+          const uint iend = (ib + TI - 1 <= xsize) ? (ib + TI - 1) : xsize;
+
+          /* SIMD vectorization hint for the inner loop */
+#pragma omp simd aligned(row_above, row_center, row_below, row_new : 64)
+          for (uint i = ib; i <= iend; ++i) {
+            const double center = row_center[i];
+            const double left = row_center[i - 1];
+            const double right = row_center[i + 1];
+            const double up = row_above[i];
+            const double down = row_below[i];
+
+            row_new[i] =
+                center * c_center + (left + right + up + down) * c_neigh;
+          }
+        } /* end ib loop */
+      } /* end j loop (rows in tile) */
+    } /* end tile loop */
+  } /* end parallel region */
 
   /* Do local periodic ghost propagation inside same parallel region so
    * threads touch local pages */
