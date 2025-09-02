@@ -91,18 +91,6 @@ int main(int argc, char **argv) {
   printf("injected energy is %g, system energy is %g\n", injected_heat,
          system_heat);
 
-#if ENABLE_LOG
-  FILE *log = fopen("timings.log", "w");
-  if (log != NULL) {
-    fprintf(log, "iter comp_time energy_time\n");
-    for (int i = 0; i < Niterations; i++) {
-      fprintf(log, "%d %f %f\n", i, comp_times[i], energy_times[i]);
-    }
-    fclose(log);
-    printf("Timing data written to timings.log\n");
-  }
-#endif
-
   free(comp_times);
   free(energy_times);
 
@@ -217,10 +205,10 @@ int initialize_sources(uint size[2], int Nsources, int **Sources) {
   // Use fixed source positions matching the Python test
   // Fixed global source positions: [(25, 25), (75, 25), (25, 75), (75, 75)]
   int fixed_sources[4][2] = {
-    {25, 25},   // Top-left quadrant
-    {75, 25},   // Top-right quadrant
-    {25, 75},   // Bottom-left quadrant
-    {75, 75}    // Bottom-right quadrant
+      {25, 25}, // Top-left quadrant
+      {75, 25}, // Top-right quadrant
+      {25, 75}, // Bottom-left quadrant
+      {75, 75}  // Bottom-right quadrant
   };
 
   for (int s = 0; s < Nsources; s++) {

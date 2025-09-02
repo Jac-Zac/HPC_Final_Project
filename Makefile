@@ -36,10 +36,9 @@ $(BASENAME):
 	$(MPICC) $(CFLAGS) $(SRC) -o $(BASENAME)
 
 test: all
-	mpirun -np 4 stencil_parallel -x 100 -y 100 -n 50 -o 1 -e 4 -s 1337
+	mpirun -np 4 ./stencil_parallel -t 1 -x 100 -y 100 -n 50 -o 1 -p 0
 	source .env/bin/activate && pytest -v tests
-	rm -f stencil_parallel stencil_serial *.bin
-	rm -rf .pytest_cache
+	$(MAKE) clean
 
 # Clean built executables
 clean:
@@ -55,11 +54,16 @@ help:
 	@echo "  all            Build the default mode (parallel or serial)"
 	@echo "  stencil_parallel  Build the parallel version"
 	@echo "  stencil_serial    Build the serial version"
-	@echo "  test           Run tests with pytest"
+	@echo "  test           Run full test suite (compile, run parallel, pytest, clean)"
 	@echo "  clean          Remove built executables and .bin files"
 	@echo "  help           Show this help message"
 	@echo ""
 	@echo "Options:"
 	@echo "  MODE=parallel|serial    Select which version to build (default: parallel)"
+	@echo ""
+	@echo "Testing:"
+	@echo "  The test suite runs a 100x100 grid with 4 heat sources for 50 iterations"
+	@echo "  using 4 MPI processes. It compares C output against Python reference."
+	@echo "  Requires: source .env/bin/activate (for numpy/pytest)"
 
 .PHONY: all clean help test
