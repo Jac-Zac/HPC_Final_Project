@@ -215,12 +215,12 @@ int initialize_sources(uint size[2], int Nsources, int **Sources) {
   *Sources = (int *)malloc(Nsources * 2 * sizeof(uint));
 
   // Use fixed source positions matching the Python test
-  // Fixed global source positions: [(50, 4), (7, 93), (15, 86), (43, 99)]
+  // Fixed global source positions: [(25, 25), (75, 25), (25, 75), (75, 75)]
   int fixed_sources[4][2] = {
-    {50, 4},    // Near left edge, top
-    {7, 93},    // Near left edge, bottom
-    {15, 86},   // Left side, middle-bottom
-    {43, 99}    // Left side, bottom
+    {25, 25},   // Top-left quadrant
+    {75, 25},   // Top-right quadrant
+    {25, 75},   // Bottom-left quadrant
+    {75, 75}    // Bottom-right quadrant
   };
 
   for (int s = 0; s < Nsources; s++) {

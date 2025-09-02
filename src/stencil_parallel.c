@@ -497,8 +497,8 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
 
 {
   // Use fixed source positions distributed across ranks
-  // Fixed global source positions: [(50, 4), (7, 93), (15, 86), (43, 99)]
-  int global_sources[4][2] = {{50, 4}, {7, 93}, {15, 86}, {43, 99}};
+  // Fixed global source positions: [(25, 25), (75, 25), (25, 75), (75, 75)]
+  int global_sources[4][2] = {{25, 25}, {75, 25}, {25, 75}, {75, 75}};
 
   // For 2x2 grid, determine which sources belong to this rank
   // Domain decomposition: 100x100 grid divided into 2x2 = 4 parts of 50x50 each
