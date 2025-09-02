@@ -73,15 +73,6 @@ int main(int argc, char **argv) {
   // Synchronize all ranks before starting the timer for better reproducibility
   MPI_Barrier(my_COMM_WORLD);
 
-  int num_threads = 0;
-#pragma omp parallel
-  {
-#pragma omp single
-    {
-      num_threads = omp_get_num_threads();
-    }
-  }
-
   double total_start_time = MPI_Wtime();
   int current = OLD;
   for (int iter = 0; iter < Niterations; ++iter) {
