@@ -1,15 +1,16 @@
 #!/bin/bash
 #SBATCH --job-name=stencil_mpi_scaling
-#SBATCH --partition=GENOA
+#SBATCH --partition=EPYC
+#SBATCH --mem=0G
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=8      # Set to the number of NUMA domains on your node
+#SBATCH --ntasks-per-node=16      # Set to the number of NUMA domains on your node
 #SBATCH --cpus-per-task=8        # Set to the number of cores per NUMA domain
 #SBATCH --time=00:05:00
 #SBATCH --exclusive
 
 # --- Configuration ---
 EXEC=./stencil_parallel
-ARGS="-x 50000 -y 50000 -n 100 -o 0"
+ARGS="-x 20000 -y 20000 -n 100 -o 0"
 RESULTS_FILE=mpi_scaling_numa_mapped.txt
 
 # --- Environment Setup ---
@@ -38,7 +39,7 @@ generate_rankfile() {
         # Generate core list: rank + 8*numa_region for each of the 8 NUMA regions
         core_list=""
         for ((numa=0; numa<8; numa++)); do
-            core=$((rank + numa * 8))
+            core=$((rank + numa * ${NTASKS_PER_NODE}))
             if [ $numa -eq 0 ]; then
                 core_list="$core"
             else
@@ -70,7 +71,7 @@ do
 
     # --- MPI Execution with rankfile ---
     mpirun -np $TASKS \
-           --rankfile $RANKFILE \
+           --map-by rankfile:file=$RANKFILE \
            --bind-to core \
            --display-map \
            --report-bindings \

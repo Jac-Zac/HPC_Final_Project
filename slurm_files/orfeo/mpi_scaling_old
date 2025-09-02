@@ -1,0 +1,50 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=8                 # request the maximum you’ll use
+#SBATCH --ntasks-per-node=8        # adapt to your cluster layout
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=0
+#SBATCH --partition=EPYC
+#SBATCH -t 00:10:00
+#SBATCH --exclusive
+#SBATCH --job-name=stencil_scaling
+
+EXEC=./stencil_parallel
+# ARGS="-x 50000 -y 50000 -n 100 -o 0"
+ARGS="-x 20000 -y 20000 -n 100 -o 0"
+
+# OpenMP settings
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_PLACES=cores
+export OMP_PROC_BIND=close
+export OMP_DISPLAY_AFFINITY=TRUE
+
+module load openMPI/5.0.5
+
+# Compile
+make MODE=parallel LOG=0
+
+# Output summary file
+RESULTS_FILE=mpi_scaling_epyc.txt
+echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
+
+# Loop over task counts
+for TASKS in 1 2 4 8 16
+do
+    echo ">>> Running with $TASKS MPI tasks"
+    OUTPUT=$(mktemp)
+
+    # Run
+    mpirun -np $TASKS --report-bindings --bind-to numa $EXEC $ARGS > $OUTPUT
+
+    # Extract values from output log
+    TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
+    MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
+    MAX_COMM=$(grep "Max communication time" $OUTPUT | awk '{print $6}')
+    ENERGY_TIME=$(grep "Total energy computaton time" $OUTPUT | awk '{print $5}')
+
+    # Append to results file
+    echo "$TASKS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
+
+    rm $OUTPUT
+done

@@ -1,24 +1,24 @@
 #!/bin/bash
 #SBATCH --job-name=stencil_openmp_scaling
-#SBATCH --partition=GENOA
+#SBATCH --partition=EPYC
 #SBATCH --nodes=1
 #SBATCH --ntasks=1            # only 1 MPI rank
-#SBATCH --cpus-per-task=64    # reserve all 24 cores on the node
-#SBATCH --mem=2G
-#SBATCH --time=00:02:00
+#SBATCH --cpus-per-task=128    # reserve all 24 cores on the node
+#SBATCH --mem=0G
+#SBATCH --time=00:05:00
 #SBATCH --exclusive
 
 EXEC=./stencil_parallel
-ARGS="-x 10000 -y 10000 -n 100 -o 0"
+ARGS="-x 20000 -y 20000 -n 100 -o 0"
 
-RESULTS_FILE=openmp_scaling_thin.txt
+RESULTS_FILE=openmp_scaling_epyc.txt
 echo "Threads,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
 module load openMPI/5.0.5
 make MODE=parallel LOG=0
 
 # Scaling on powers of 2 up to 24 cores
-for THREADS in 1 2 4 6 8 16 32
+for THREADS in 1 2 4 6 8 16 32 64 128
 do
     echo ">>> Running with $THREADS OpenMP threads"
 
