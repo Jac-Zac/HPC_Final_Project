@@ -1,146 +1,133 @@
 # HPC Heat-Stencil Simulation
 
-> [!WARNING]
-> Remember to pin to specifc cores etc in OpenMP when on the HPC
-
-## Overview
-
-This project implements a **2D heat-stencil simulation** with both **serial** and **parallel** versions.
-The parallel version uses **MPI** and **OpenMP**. The simulation supports multiple heat sources, configurable grid sizes, iterations, optional periodic boundaries, and energy logging.
-
----
+A 2D heat-stencil simulation with serial and parallel (MPI+OpenMP) implementations for HPC systems.
 
 ## Features
 
-- Serial and parallel implementations
-- Configurable grid size (`x` × `y`)
-- Multiple heat sources and energy per source
-- Adjustable iterations
+- Serial and parallel heat diffusion simulation
+- Configurable grid sizes, heat sources, and iterations
 - Periodic boundary support
-- Logging of energy budget
+- Energy logging and performance timing
 - MPI/OpenMP hybrid parallelism
-
----
+- Python reference implementation for validation
 
 ## Project Structure
 
-```bash
+```
 .
 ├── include/               # Header files
-│   └── stencil.h
-├── src/                   # Source files
-│   ├── stencil_template_serial.c
-│   └── stencil_template_parallel.c
-├── Makefile               # Build instructions
+├── src/                   # Source code (stencil_serial.c, stencil_parallel.c)
+├── tests/                 # Python tests and reference implementation
+├── python_plotting/       # Scaling analysis scripts
+├── slurm_files/           # HPC job scripts for Cineca and Orfeo
+├── final_report/          # Project documentation
+├── Makefile               # Build system
 └── README.md
 ```
 
----
-
-## Compilation
+## Quick Start
 
 ### Requirements
 
-- `gcc-15` or later
-- `mpicc` (Open MPI or MPICH)
-- OpenMP support
+- GCC 12+ with OpenMP
+- OpenMPI/MPICH
+- Python 3 (for tests)
 
 ### Build
 
-**Serial:**
-
 ```bash
+# Parallel version (default)
+make
+
+# Serial version
 make MODE=serial
-```
 
-**Parallel (MPI/OpenMP):**
+# With logging
+make LOG=1
 
-```bash
-make MODE=parallel
-```
-
-**Enable logging:**
-
-```bash
-make MODE=parallel LOG=1
-```
-
-**Clean:**
-
-```bash
+# Clean
 make clean
 ```
 
----
-
-## Command-Line Options
-
-| Option | Description                   | Default |
-| ------ | ----------------------------- | ------- |
-| `-x`   | Grid width                    | 1000    |
-| `-y`   | Grid height                   | 1000    |
-| `-e`   | Number of heat sources        | 1       |
-| `-E`   | Energy per source             | 1.0     |
-| `-n`   | Number of iterations          | 99      |
-| `-p`   | Periodic boundaries (0/1)     | 0       |
-| `-o`   | Print energy per step (0/1)   | 0       |
-| `-f`   | Frequency of energy injection | 0.0     |
-| `-h`   | Show help message             | N/A     |
-
-**Example:**
+### Run Locally
 
 ```bash
-./stencil_template_serial -x 500 -y 500 -n 50 -e 2 -E 2.0 -o 1
-```
+# Serial
+./stencil_serial -x 1000 -y 1000 -n 100 -e 4 -E 1.5
 
----
-
-## Running Parallel Version
-
-```bash
-mpirun -np 4 ./stencil_template_parallel -x 1000 -y 1000 -n 100 -e 4 -E 1.5 -o 1
+# Parallel (4 MPI tasks, 4 OpenMP threads each)
 export OMP_NUM_THREADS=4
+mpirun -np 4 ./stencil_parallel -x 1000 -y 1000 -n 100 -e 4 -E 1.5
 ```
 
----
+### Command Line Options
 
-## Timing & Logging
+- `-x, -y`: Grid dimensions (default: 1000x1000)
+- `-n`: Iterations (default: 99)
+- `-e`: Number of heat sources (default: 1)
+- `-E`: Energy per source (default: 1.0)
+- `-p`: Periodic boundaries (0/1, default: 0)
+- `-o`: Print energy per step (0/1, default: 0)
+- `-f`: Energy injection frequency (default: 0.0)
 
-- Compile with `LOG=1` for per-iteration logging.
-- Measure total execution:
+## HPC Execution
+
+### Cineca (Leonardo/Booster)
+
+Use the provided SLURM scripts in `slurm_files/cineca/`:
 
 ```bash
-time ./stencil_template_parallel -x 1000 -y 1000 -n 100
+# Edit go_dcgp or go_booster with your parameters
+sbatch go_dcgp  # For DCGP partition
+sbatch go_booster  # For Booster partition
 ```
 
-- MPI timing inside code: use `MPI_Wtime()`.
+Key settings:
 
----
+- Load modules: `gcc/12.2.0`, `openmpi/4.1.6--gcc--12.2.0`
+- Set `OMP_PLACES=cores`, `OMP_PROC_BIND=spread`
+- Use `--exclusive` for full node access
 
-## Suggested Test Cases
+### Orfeo (EPYC)
 
-| Grid Size | Sources | Energy | Iterations | MPI / OMP |
-| --------- | ------- | ------ | ---------- | --------- |
-| 500×500   | 1       | 1.0    | 50         | 2         |
-| 1000×1000 | 2       | 2.0    | 100        | 4         |
-| 2000×2000 | 4       | 1.5    | 200        | 8         |
+Use scripts in `slurm_files/orfeo/`:
 
----
+```bash
+sbatch mpi_scaling  # MPI scaling test with NUMA awareness
+sbatch openmp_scaling  # OpenMP scaling test
+```
 
-## Notes
+Features NUMA-aware rankfile generation for optimal performance.
 
-- Compiler should support **C17** or **C99+**.
-- Periodic boundaries wrap heat propagation at edges.
+### General HPC Tips
 
----
+- Pin threads to cores: `export OMP_PLACES=cores`
+- Use thread binding: `export OMP_PROC_BIND=close` or `spread`
+- Request exclusive nodes for consistent performance
+- Monitor affinity: `export OMP_DISPLAY_AFFINITY=TRUE`
+
+## Testing
+
+```bash
+# Run all tests
+make test
+
+# Python tests only
+pytest -v tests/
+
+# Validate against reference implementation
+python -m pytest tests/test_stencil.py::test_against_reference
+```
+
+## Performance Analysis
+
+- Use `python_plotting/plot_strong_scaling.py` for scaling plots
+- Enable logging (`LOG=1`) for detailed timing
+- Compare serial vs parallel with different thread/MPI configurations
 
 ## References
 
-- [OpenMP](https://www.openmp.org)
-- [MPI](https://www.mpi-forum.org)
+- [OpenMP Documentation](https://www.openmp.org)
+- [MPI Standard](https://www.mpi-forum.org)
 
----
-
-## Author
-
-- University HPC Project by Jacopo Zacchigna
+**Author**: Jacopo Zacchigna - University HPC Final Project
