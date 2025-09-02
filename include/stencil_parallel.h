@@ -234,9 +234,8 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
 }
 
 inline int update_plane_tiled(const int periodic,
-                              const vec2_t N, // MPI grid of ranks
+                              const vec2_t N, /* MPI grid of ranks */
                               const plane_t *oldplane, plane_t *newplane) {
-
   const uint f_xsize = oldplane->size[_x_] + 2;
   const uint xsize = oldplane->size[_x_];
   const uint ysize = oldplane->size[_y_];
@@ -244,79 +243,155 @@ inline int update_plane_tiled(const int periodic,
   double *restrict newp = newplane->data;
   const double *restrict oldp = oldplane->data;
 
-  // Pre-compute stencil coefficients for clarity
-  const double c_center = 0.5;  // = 1/2
-  const double c_neigh = 0.125; // = 1/8
+  const double c_center = 0.5;
+  const double c_neigh = 0.125;
 
-// Row-parallel, inner loop vectorized by compiler
+  /* Tiling params: tune these. Good starting values: TI = 512, TJ = 64 */
+  const uint TI = 128; /* tile width in i (columns) */
+  const uint TJ = 32;  /* tile height in j (rows)  */
+
+  /* Hint alignment to compiler (assume caller allocated 64-byte aligned) */
+  const double *const oldp_a =
+      (const double *)__builtin_assume_aligned(oldp, 64);
+  double *const newp_a = (double *)__builtin_assume_aligned(newp, 64);
+
 #pragma omp parallel for schedule(static)
-  for (uint j = 1; j <= ysize; ++j) {
-    const double *row_above = oldp + (j - 1) * f_xsize;
-    const double *row_center = oldp + j * f_xsize;
-    const double *row_below = oldp + (j + 1) * f_xsize;
-    double *row_new = newp + j * f_xsize;
+  for (uint jb = 1; jb <= ysize; jb += TJ) {
+    const uint jend = (jb + TJ - 1 <= ysize) ? (jb + TJ - 1) : ysize;
 
-    for (uint i = 1; i <= xsize; ++i) {
+    /* For each row in the j-tile */
+    for (uint j = jb; j <= jend; ++j) {
+      /* precompute base pointers for this row */
+      const double *__restrict__ row_above = oldp_a + (j - 1) * f_xsize;
+      const double *__restrict__ row_center = oldp_a + j * f_xsize;
+      const double *__restrict__ row_below = oldp_a + (j + 1) * f_xsize;
+      double *__restrict__ row_new = newp_a + j * f_xsize;
 
-      // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even
-      //       if this patch is at some border without periodic conditions;
-      //       in that case it is assumed that the +-1 points are outside the
-      //       plate and always have a value of 0, i.e. they are an
-      //       "infinite sink" of heat
-      //
-      // NOTE: That if here I put an if statement (for example to check the
-      // borders) it is likely that the compiler will not perform
-      // vectorization by himself automatically
-      const double center = row_center[i];
-      const double left = row_center[i - 1];
-      const double right = row_center[i + 1];
-      const double up = row_above[i];
-      const double down = row_below[i];
+      /* i-tiling inside the row to keep working set small and allow
+       * vectorization */
+      for (uint ib = 1; ib <= xsize; ib += TI) {
+        const uint iend = (ib + TI - 1 <= xsize) ? (ib + TI - 1) : xsize;
 
-      row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-    }
-  }
+        /* Hint to compiler: these pointers are 64-byte aligned and inner loop
+         * is SIMD-friendly */
+        // #pragma omp simd aligned(row_above, row_center, row_below, row_new :
+        // 64)
+        for (uint i = ib; i <= iend; ++i) {
+          const double center = row_center[i];
+          const double left = row_center[i - 1];
+          const double right = row_center[i + 1];
+          const double up = row_above[i];
+          const double down = row_below[i];
 
-  // Periodic propagation for single-rank-in-dimension cases (your original
-  // intent)
+          row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
+        }
+      } /* end ib loop */
+    } /* end j loop (rows in a tile) */
+  } /* end jb loop (j-tiles) */
+
+  /* Do local periodic ghost propagation inside same parallel region so
+   * threads touch local pages */
   if (periodic) {
-    // If only one rank along X, wrap left/right ghosts locally
     if (N[_x_] == 1) {
       for (uint j = 1; j <= ysize; ++j) {
-        double *row = newp + j * f_xsize;
-        row[0] = row[xsize];     // left ghost  <= right edge
-        row[xsize + 1] = row[1]; // right ghost <= left  edge
+        double *row = newp_a + j * f_xsize;
+        row[0] = row[xsize];
+        row[xsize + 1] = row[1];
       }
     }
-    // If only one rank along Y, wrap top/bottom ghosts locally
     if (N[_y_] == 1) {
-      double *row_top = newp + 1 * f_xsize;
-      double *row_bottom = newp + ysize * f_xsize;
-      double *row_topghost = newp + 0 * f_xsize;
-      double *row_bottomghost = newp + (ysize + 1) * f_xsize;
-
+      /* distribute top/bottom ghost writes across threads */
       for (uint i = 1; i <= xsize; ++i) {
+        double *row_top = newp_a + 1 * f_xsize;
+        double *row_bottom = newp_a + ysize * f_xsize;
+        double *row_topghost = newp_a + 0 * f_xsize;
+        double *row_bottomghost = newp_a + (ysize + 1) * f_xsize;
         row_topghost[i] = row_bottom[i];
         row_bottomghost[i] = row_top[i];
       }
     }
   }
 
-  // // TODO: Check if here I can simply take the code from the serial version
-  // // Perhaps I need to adjust things to work for the patches, though each
-  // // plane will have the corresponding size which helps identify and are
-  // // different for different ranks if I understood correctly
-  // if (periodic) {
-  //   if (N[_x_] == 1) {
-  //     // propagate the boundaries as needed
-  //     // check the serial version
-  //   }
-  //
-  //   if (N[_y_] == 1) {
-  //     // propagate the boundaries as needed
-  //     // check the serial version
-  //   }
-  // }
+  return 0;
+}
+inline int update_plane_tiled(const int periodic,
+                              const vec2_t N, /* MPI grid of ranks */
+                              const plane_t *oldplane, plane_t *newplane) {
+  const uint f_xsize = oldplane->size[_x_] + 2;
+  const uint xsize = oldplane->size[_x_];
+  const uint ysize = oldplane->size[_y_];
+
+  double *restrict newp = newplane->data;
+  const double *restrict oldp = oldplane->data;
+
+  const double c_center = 0.5;
+  const double c_neigh = 0.125;
+
+  /* Tiling params: tune these. Good starting values: TI = 512, TJ = 64 */
+  const uint TI = 16; /* tile width in i (columns) */
+  const uint TJ = 8;  /* tile height in j (rows)  */
+
+  /* Hint alignment to compiler (assume caller allocated 64-byte aligned) */
+  const double *const oldp_a =
+      (const double *)__builtin_assume_aligned(oldp, 64);
+  double *const newp_a = (double *)__builtin_assume_aligned(newp, 64);
+
+#pragma omp parallel for schedule(static)
+  for (uint jb = 1; jb <= ysize; jb += TJ) {
+    const uint jend = (jb + TJ - 1 <= ysize) ? (jb + TJ - 1) : ysize;
+
+    /* For each row in the j-tile */
+    for (uint j = jb; j <= jend; ++j) {
+      /* precompute base pointers for this row */
+      const double *__restrict__ row_above = oldp_a + (j - 1) * f_xsize;
+      const double *__restrict__ row_center = oldp_a + j * f_xsize;
+      const double *__restrict__ row_below = oldp_a + (j + 1) * f_xsize;
+      double *__restrict__ row_new = newp_a + j * f_xsize;
+
+      /* i-tiling inside the row to keep working set small and allow
+       * vectorization */
+      for (uint ib = 1; ib <= xsize; ib += TI) {
+        const uint iend = (ib + TI - 1 <= xsize) ? (ib + TI - 1) : xsize;
+
+        /* Hint to compiler: these pointers are 64-byte aligned and inner loop
+         * is SIMD-friendly */
+        // #pragma omp simd aligned(row_above, row_center, row_below, row_new :
+        // 64)
+        for (uint i = ib; i <= iend; ++i) {
+          const double center = row_center[i];
+          const double left = row_center[i - 1];
+          const double right = row_center[i + 1];
+          const double up = row_above[i];
+          const double down = row_below[i];
+
+          row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
+        }
+      } /* end ib loop */
+    } /* end j loop (rows in a tile) */
+  } /* end jb loop (j-tiles) */
+
+  /* Do local periodic ghost propagation inside same parallel region so
+   * threads touch local pages */
+  if (periodic) {
+    if (N[_x_] == 1) {
+      for (uint j = 1; j <= ysize; ++j) {
+        double *row = newp_a + j * f_xsize;
+        row[0] = row[xsize];
+        row[xsize + 1] = row[1];
+      }
+    }
+    if (N[_y_] == 1) {
+      /* distribute top/bottom ghost writes across threads */
+      for (uint i = 1; i <= xsize; ++i) {
+        double *row_top = newp_a + 1 * f_xsize;
+        double *row_bottom = newp_a + ysize * f_xsize;
+        double *row_topghost = newp_a + 0 * f_xsize;
+        double *row_bottomghost = newp_a + (ysize + 1) * f_xsize;
+        row_topghost[i] = row_bottom[i];
+        row_bottomghost[i] = row_top[i];
+      }
+    }
+  }
 
   return 0;
 }
