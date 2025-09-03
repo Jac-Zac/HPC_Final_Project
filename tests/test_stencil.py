@@ -17,12 +17,13 @@ def extract_energies_from_bins(prefix="plane_global_", nx=100, ny=100):
         # For serial files, exclude global files
         files = sorted(
             [f for f in glob.glob(f"{prefix}*.bin") if "global" not in f],
-            key=lambda x: int(re.search(r"(\d+)", x).group(1))
+            key=lambda x: int(re.search(r"(\d+)", x).group(1)),
         )
     else:
         # For global files, use normal pattern
         files = sorted(
-            glob.glob(f"{prefix}*.bin"), key=lambda x: int(re.search(r"(\d+)", x).group(1))
+            glob.glob(f"{prefix}*.bin"),
+            key=lambda x: int(re.search(r"(\d+)", x).group(1)),
         )
     energies = []
     for f in files:
@@ -55,4 +56,4 @@ def test_against_reference():
 
     print("Python energies:", ref_energies[:3])
     print("C energies:", c_energies[:3])
-    assert np.allclose(ref_energies, c_energies, rtol=1e-1)
+    assert np.allclose(ref_energies, c_energies, rtol=1e-6)
