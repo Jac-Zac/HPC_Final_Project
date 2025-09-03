@@ -8,6 +8,8 @@ AGENTS.md
 **/*.py[cod]
 **/*.ipynb_checkpoints/
 **/*.virtual_documents
+python_plotting/visualize.py
+
 
 # LaTeX
 **/*.aux
@@ -39,6 +41,7 @@ stencil_parallel
 **/*.jpg
 **/*.jpeg
 **/*.svg
+**/.mp4
 
 # Project-specific
 access_cineca.sh

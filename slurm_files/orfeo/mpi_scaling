@@ -32,14 +32,19 @@ HOSTNAME=$(hostname)
 generate_rankfile() {
     local num_tasks=$1
     local rankfile_name="rankfile_${num_tasks}.txt"
-    
+
     echo "# Rankfile for $num_tasks MPI tasks with NUMA-spanning cores" > $rankfile_name
-    
+
+    # --- FIX 2: Make the calculation robust and independent of SLURM variables ---
+    # According to your lscpu, there are 16 cores per NUMA domain (e.g., node0 is 0-15)
+    # This is the correct stride value to step between NUMA domains.
+    local CORES_PER_NUMA=16
+
     for ((rank=0; rank<num_tasks; rank++)); do
-        # Generate core list: rank + 8*numa_region for each of the 8 NUMA regions
+        # Generate core list: rank + (numa_region * 16)
         core_list=""
         for ((numa=0; numa<8; numa++)); do
-            core=$((rank + numa * ${NTASKS_PER_NODE}))
+            core=$((rank + numa * CORES_PER_NUMA)) # Use the robust variable
             if [ $numa -eq 0 ]; then
                 core_list="$core"
             else
@@ -48,7 +53,7 @@ generate_rankfile() {
         done
         echo "rank $rank=${HOSTNAME} slot=$core_list" >> $rankfile_name
     done
-    
+
     echo $rankfile_name
 }
 
@@ -56,7 +61,8 @@ generate_rankfile() {
 echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
 # --- Scaling Loop ---
-for TASKS in 1 2 4 8
+# for TASKS in 1 2 4 8
+for TASKS in 1 2 3
 do
     echo ">>> Running with $TASKS MPI tasks, ${OMP_NUM_THREADS} threads per task"
     
