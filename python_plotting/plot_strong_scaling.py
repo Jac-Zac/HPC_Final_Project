@@ -1,10 +1,45 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+"""
+HPC Heat-Stencil Scaling Analysis Plotter
+
+This script analyzes and plots scaling performance for MPI and OpenMP implementations
+of the heat-stencil simulation. It generates multiple plots comparing measured performance
+against ideal scaling curves.
+
+Usage:
+    python plot_strong_scaling.py [options] [mpi_file] [openmp_file]
+
+Options:
+    --save-dir DIR     Save plots to specified directory (default: plots/)
+    --no-show         Don't display plots (useful for headless environments)
+    --mpi-only        Plot only MPI scaling data
+    --openmp-only     Plot only OpenMP scaling data
+
+Examples:
+    python plot_strong_scaling.py                          # Use default files
+    python plot_strong_scaling.py --save-dir results/     # Save to custom directory
+    python plot_strong_scaling.py mpi_data.csv openmp_data.csv
+    python plot_strong_scaling.py --mpi-only mpi_data.csv
+"""
 
 import sys
+import os
+from pathlib import Path
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+
+try:
+    import numpy as np
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    if MATPLOTLIB_AVAILABLE:
+        print("Warning: pandas/numpy not available. Install with: pip install pandas numpy")
 
 
 def _ideal_time_curve(tasks, baseline_tasks, baseline_time):
@@ -13,9 +48,13 @@ def _ideal_time_curve(tasks, baseline_tasks, baseline_time):
 
 
 def _plot_comparison_with_ideal(
-    mpi_data=None, openmp_data=None, ylabel="", title="", logy=True
+    mpi_data=None, openmp_data=None, ylabel="", title="", logy=True, save_dir=None, show_plot=True
 ):
     """Compare scaling curves with ideal lines. Use log-log for time plots."""
+    if not MATPLOTLIB_AVAILABLE:
+        print(f"Skipping plot '{title}' - matplotlib not available")
+        return
+
     fig, ax = plt.subplots(figsize=(10, 6))
 
     plotted = False
@@ -83,11 +122,27 @@ def _plot_comparison_with_ideal(
     ax.legend()
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.show()
+
+    # Save plot if directory specified
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        filename = f"{title.lower().replace(' ', '_').replace(':', '')}.png"
+        filepath = os.path.join(save_dir, filename)
+        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        print(f"Saved plot: {filepath}")
+
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
 
 
-def _plot_speedup_comparison(mpi_data=None, openmp_data=None):
+def _plot_speedup_comparison(mpi_data=None, openmp_data=None, save_dir=None, show_plot=True):
     """Compare speedup for MPI vs OpenMP with ideal speedup."""
+    if not MATPLOTLIB_AVAILABLE:
+        print("Skipping speedup plot - matplotlib not available")
+        return
+
     if mpi_data is None and openmp_data is None:
         return
 
@@ -148,11 +203,27 @@ def _plot_speedup_comparison(mpi_data=None, openmp_data=None):
     ax.legend()
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.show()
+
+    # Save plot if directory specified
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        filename = "strong_scaling_speedup_comparison.png"
+        filepath = os.path.join(save_dir, filename)
+        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        print(f"Saved plot: {filepath}")
+
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
 
 
-def _plot_efficiency_comparison(mpi_data=None, openmp_data=None):
+def _plot_efficiency_comparison(mpi_data=None, openmp_data=None, save_dir=None, show_plot=True):
     """Compare efficiency for MPI vs OpenMP. Linear y-axis for percentages."""
+    if not MATPLOTLIB_AVAILABLE:
+        print("Skipping efficiency plot - matplotlib not available")
+        return
+
     if mpi_data is None and openmp_data is None:
         return
 
@@ -202,7 +273,19 @@ def _plot_efficiency_comparison(mpi_data=None, openmp_data=None):
     ax.legend()
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.show()
+
+    # Save plot if directory specified
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        filename = "strong_scaling_efficiency_comparison.png"
+        filepath = os.path.join(save_dir, filename)
+        plt.savefig(filepath, dpi=300, bbox_inches='tight')
+        print(f"Saved plot: {filepath}")
+
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
 
 
 def load_and_validate_data(file_path, expected_columns):
@@ -243,7 +326,7 @@ def load_and_validate_data(file_path, expected_columns):
     return data
 
 
-def plot_scaling_comparison(mpi_file=None, openmp_file=None):
+def plot_scaling_comparison(mpi_file=None, openmp_file=None, save_dir=None, show_plot=True):
     """Read MPI and/or OpenMP results and create comparison plots."""
     mpi_data = None
     openmp_data = None
@@ -278,7 +361,8 @@ def plot_scaling_comparison(mpi_file=None, openmp_file=None):
     if openmp_total is not None:
         openmp_total["values"] = openmp_total["TotalTime"]
     _plot_comparison_with_ideal(
-        mpi_total, openmp_total, ylabel="Total Time (s)", title="Total Time Scaling"
+        mpi_total, openmp_total, ylabel="Total Time (s)", title="Total Time Scaling",
+        save_dir=save_dir, show_plot=show_plot
     )
 
     # 2) Max Computation Time
@@ -296,6 +380,7 @@ def plot_scaling_comparison(mpi_file=None, openmp_file=None):
             openmp_comp,
             ylabel="Max Computation Time (s)",
             title="Computation Time Scaling",
+            save_dir=save_dir, show_plot=show_plot
         )
 
     # 3) Max Communication Time - linear y-axis shows overhead growth
@@ -314,6 +399,7 @@ def plot_scaling_comparison(mpi_file=None, openmp_file=None):
             ylabel="Max Communication Time (s)",
             title="Communication Time Scaling",
             logy=False,  # Linear y-axis shows communication overhead better
+            save_dir=save_dir, show_plot=show_plot
         )
 
     # 4) Energy Computation Time
@@ -331,13 +417,14 @@ def plot_scaling_comparison(mpi_file=None, openmp_file=None):
             openmp_energy,
             ylabel="Energy Computation Time (s)",
             title="Energy Time Scaling",
+            save_dir=save_dir, show_plot=show_plot
         )
 
     # 5) Speedup - smart log scaling
-    _plot_speedup_comparison(mpi_data, openmp_data)
+    _plot_speedup_comparison(mpi_data, openmp_data, save_dir=save_dir, show_plot=show_plot)
 
     # 6) Efficiency - always linear y-axis
-    _plot_efficiency_comparison(mpi_data, openmp_data)
+    _plot_efficiency_comparison(mpi_data, openmp_data, save_dir=save_dir, show_plot=show_plot)
 
     # --- Summary ---
     print("\n=== SUMMARY STATISTICS ===")
@@ -376,24 +463,109 @@ def plot_scaling_comparison(mpi_file=None, openmp_file=None):
 
 def main():
     """Main function to handle command line arguments."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="HPC Heat-Stencil Scaling Analysis Plotter",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python plot_strong_scaling.py                          # Use default files
+  python plot_strong_scaling.py --save-dir results/     # Save to custom directory
+  python plot_strong_scaling.py mpi_data.csv openmp_data.csv
+  python plot_strong_scaling.py --mpi-only mpi_data.csv
+  python plot_strong_scaling.py --no-show --save-dir plots/
+        """
+    )
+
+    parser.add_argument('files', nargs='*', help='MPI and/or OpenMP data files')
+    parser.add_argument('--save-dir', type=str, default=None,
+                       help='Directory to save plots (default: plots/)')
+    parser.add_argument('--no-show', action='store_true',
+                       help='Do not display plots (useful for headless environments)')
+    parser.add_argument('--mpi-only', action='store_true',
+                       help='Plot only MPI scaling data')
+    parser.add_argument('--openmp-only', action='store_true',
+                       help='Plot only OpenMP scaling data')
+
+    args = parser.parse_args()
+
+    # Determine which files to use
     mpi_file, openmp_file = None, None
 
-    if len(sys.argv) == 3:
-        mpi_file, openmp_file = sys.argv[1], sys.argv[2]
-    elif len(sys.argv) == 2:
-        file = sys.argv[1]
-        if "mpi" in file.lower():
-            mpi_file = file
-        else:
-            openmp_file = file
-    elif len(sys.argv) == 1:
-        mpi_file, openmp_file = "mpi_results.txt", "openmp_scaling.txt"
-    else:
-        print("Usage: python script.py [mpi_file [openmp_file]]")
-        sys.exit(1)
+    if args.mpi_only and args.openmp_only:
+        parser.error("--mpi-only and --openmp-only cannot be used together")
 
-    plot_scaling_comparison(mpi_file, openmp_file)
+    if args.files:
+        for file in args.files:
+            if "mpi" in file.lower() or args.mpi_only:
+                mpi_file = file
+            elif "openmp" in file.lower() or args.openmp_only:
+                openmp_file = file
+            else:
+                # If not specified, try to guess based on filename
+                if "mpi" in file.lower():
+                    mpi_file = file
+                else:
+                    openmp_file = file
+    else:
+        # Default files
+        if not args.mpi_only:
+            mpi_file = "mpi_results.txt"
+        if not args.openmp_only:
+            openmp_file = "openmp_scaling.txt"
+
+    # Set default save directory if saving is requested
+    save_dir = args.save_dir
+    if save_dir is None and not args.no_show:
+        save_dir = "plots"
+
+    plot_scaling_comparison(mpi_file, openmp_file, save_dir=save_dir, show_plot=not args.no_show)
+
+
+def test_basic_functionality():
+    """Test basic functionality without matplotlib."""
+    print("Testing basic functionality...")
+
+    if not PANDAS_AVAILABLE:
+        print("✗ Pandas/numpy not available for data loading tests")
+        return
+
+    # Test data loading
+    try:
+        mpi_data = load_and_validate_data("mpi_results.txt", ["Tasks", "TotalTime", "MaxCompTime", "MaxCommTime", "EnergyCompTime"])
+        print(f"✓ MPI data loaded: {len(mpi_data)} rows")
+    except Exception as e:
+        print(f"✗ MPI data loading failed: {e}")
+
+    try:
+        openmp_data = load_and_validate_data("openmp_scaling.txt", ["Threads", "TotalTime", "MaxCompTime", "MaxCommTime", "EnergyCompTime"])
+        print(f"✓ OpenMP data loaded: {len(openmp_data)} rows")
+    except Exception as e:
+        print(f"✗ OpenMP data loading failed: {e}")
+
+    print("Basic functionality test completed.")
 
 
 if __name__ == "__main__":
+    # If matplotlib is not available, provide helpful message and run basic tests
+    if not MATPLOTLIB_AVAILABLE:
+        print("\n" + "="*60)
+        print("HPC Heat-Stencil Scaling Analysis Plotter")
+        print("="*60)
+        print("matplotlib not available. To install:")
+        print("  pip install matplotlib pandas numpy")
+        print("\nRunning basic functionality tests...")
+        print("="*60 + "\n")
+
+        test_basic_functionality()
+
+        print("\n" + "="*60)
+        print("Usage examples:")
+        print("  python plot_strong_scaling.py")
+        print("  python plot_strong_scaling.py --save-dir results/")
+        print("  python plot_strong_scaling.py --no-show --save-dir plots/")
+        print("="*60 + "\n")
+        sys.exit(1)
+
     main()
