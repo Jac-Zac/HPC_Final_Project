@@ -277,7 +277,7 @@ int initialize(MPI_Comm *Comm,
   // process the command line
   while (1) {
     int opt;
-    while ((opt = getopt(argc, argv, ":hx:y:e:E:n:o:p:v:t")) != -1) {
+    while ((opt = getopt(argc, argv, ":hx:y:e:E:n:o:p:v:t:")) != -1) {
       switch (opt) {
       case 'x':
         (*S)[_x_] = (uint)atoi(optarg);
@@ -565,22 +565,27 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
                        int testing) {
   if (testing) {
     // --- Fixed deterministic placement (testing mode) ---
-    // Use fixed source positions distributed across ranks
-    int global_sources[4][2] = {{25, 25}, {75, 25}, {25, 75}, {75, 75}};
+    // Simplified: each rank gets the sources that fall within its domain
+    // Domain decomposition: 2x2 grid with 50x50 cells per rank
 
+    // Fixed global source positions: [(25,25), (75,25), (25,75), (75,75)]
+    const int global_sources[4][2] = {{25, 25}, {75, 25}, {25, 75}, {75, 75}};
+
+    int local_sources[4][2]; // Max 4 sources per rank
     int nlocal = 0;
-    int local_sources[4][2]; // Store local coordinates
 
-    for (int i = 0; i < Nsources; i++) {
+    // Check which global sources belong to this rank's domain
+    for (int i = 0; i < 4; i++) {
       int gx = global_sources[i][0];
       int gy = global_sources[i][1];
 
-      // Determine owning rank in a 2x2 domain decomposition
+      // Determine target rank for this source
       int rank_x = (gx > 50) ? 1 : 0;
       int rank_y = (gy > 50) ? 1 : 0;
       int target_rank = rank_y * 2 + rank_x;
 
       if (target_rank == Me) {
+        // Convert global to local coordinates
         int local_x = (rank_x == 0) ? gx : (gx - 50);
         int local_y = (rank_y == 0) ? gy : (gy - 50);
         local_sources[nlocal][0] = local_x;
@@ -589,15 +594,16 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
       }
     }
 
+    // Allocate and copy local sources
     *Nsources_local = nlocal;
-
     if (nlocal > 0) {
-      vec2_t *restrict helper = (vec2_t *)malloc(nlocal * sizeof(vec2_t));
+      *Sources = (vec2_t *)malloc(nlocal * sizeof(vec2_t));
       for (int s = 0; s < nlocal; s++) {
-        helper[s][_x_] = local_sources[s][0];
-        helper[s][_y_] = local_sources[s][1];
+        (*Sources)[s][_x_] = local_sources[s][0];
+        (*Sources)[s][_y_] = local_sources[s][1];
       }
-      *Sources = helper;
+    } else {
+      *Sources = NULL;
     }
     return 0;
   } else {
@@ -814,6 +820,8 @@ int output_energy_stat(int step, plane_t *plane, double budget, int Me,
 
 // NOTE: AI Generated code from this part onward
 // ---------------------------------------------
+// This function reconstructs the global grid from distributed MPI patches
+// and writes it to a binary file for validation against the serial version
 
 int dump_global_grid(
     const plane_t *plane,    // local plane
@@ -835,7 +843,8 @@ int dump_global_grid(
   uint global_x = S[_x_] + 2;
   uint global_y = S[_y_] + 2;
 
-  // Collect patch sizes from all ranks
+  // Phase 1: Gather metadata from all ranks
+  // Each rank sends its local patch size and coordinates to rank 0
   uint(*all_sizes)[2] = NULL;
   uint(*all_coords)[2] = NULL;
   if (rank == 0) {
@@ -922,8 +931,8 @@ int dump_global_grid(
                MPI_STATUS_IGNORE);
     }
 
-    // Now assemble the global grid
-    // Handle 2D domain decomposition properly
+    // Phase 2: Assemble global grid from all patches
+    // Each rank's data is placed at the correct global coordinates
     for (int r = 0; r < ntasks; r++) {
       uint patch_x = all_sizes[r][0];
       uint patch_y = all_sizes[r][1];
