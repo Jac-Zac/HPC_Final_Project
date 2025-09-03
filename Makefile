@@ -38,14 +38,27 @@ $(BASENAME):
 test:
 	$(MAKE) clean
 	$(MAKE) all
-	mpirun -np 4 ./stencil_parallel -x 100 -y 100 -n 50 -o 1 -p 0 -t 1
-	source .env/bin/activate && pytest -v tests
+	mkdir -p data_logging
+	. .env/bin/activate && pytest -v tests
 	$(MAKE) clean
+
+run:
+	$(MAKE) all
+	@echo "Running parallel simulation with default parameters..."
+	mpirun -np 4 ./stencil_parallel
+
+visualize:
+	$(MAKE) all
+	mkdir -p data_logging
+	@echo "Running simulation with visualization data..."
+	mpirun -np 4 ./stencil_parallel -x 100 -y 100 -n 200 -o 1 -t 1 -e 10 -p 1
+	@echo "Generating visualizations..."
+	. .env/bin/activate && python3 python_plotting/generate_visualizations.py
 
 # Clean built executables
 clean:
 	rm -f stencil_parallel stencil_serial *.bin 
-	rm -rf *.dSYM .pytest_cache
+	rm -rf *.dSYM .pytest_cache data_logging
 
 # Help target
 help:
@@ -57,6 +70,8 @@ help:
 	@echo "  stencil_parallel  Build the parallel version"
 	@echo "  stencil_serial    Build the serial version"
 	@echo "  test           Run full test suite (compile, run parallel, pytest, clean)"
+	@echo "  run            Quick run with default parameters (4 MPI processes)"
+	@echo "  visualize      Run simulation and generate visualizations"
 	@echo "  clean          Remove built executables and .bin files"
 	@echo "  help           Show this help message"
 	@echo ""
@@ -68,4 +83,4 @@ help:
 	@echo "  using 4 MPI processes. It compares C output against Python reference."
 	@echo "  Requires: source .env/bin/activate (for numpy/pytest)"
 
-.PHONY: all clean help test
+.PHONY: all clean help test run run-test visualize
