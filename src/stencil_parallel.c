@@ -136,7 +136,7 @@ int main(int argc, char **argv) {
                          (iter + 1) * Nsources * energy_per_source, Rank,
                          &my_COMM_WORLD);
 
-      char filename[100];
+      char filename[128];
       sprintf(filename, "data_logging/%d_plane_%05d.bin", Rank, iter);
       int dump_status =
           dump(planes[!current].data, planes[!current].size, filename);
@@ -455,7 +455,7 @@ int initialize(MPI_Comm *Comm,
   uint s = (*S)[_x_] / Grid[_x_];
   uint r = (*S)[_x_] % Grid[_x_];
 
-  // NOTE: Give extra cells to the first r tasks
+  // Give extra cells to the first r tasks
   my_size[_x_] = s + (X < r);
 
   // Do the same for the y axies
@@ -553,12 +553,13 @@ uint simple_factorization(uint a, int *nfactors, uint **factors)
   return 0;
 }
 
+// NOTE: To review with previous implementation
 int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
-                        int Nsources, int *Nsources_local, vec2_t **sources,
-                        int testing) {
+                       int Nsources, int *Nsources_local, vec2_t **sources,
+                       int testing) {
   // Use deterministic seed when testing for reproducible results
   if (testing != 0) {
-    srand48(12345 ^ Me);  // Fixed seed for testing
+    srand48(1337 ^ Me); // Fixed seed for testing
   } else {
     srand48(time(NULL) ^ Me);
   }
@@ -668,9 +669,8 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   unsigned int frame_size =
       (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
 
-  // NEW: Aligned allocation for SIMD performance
-  // Use 64-byte alignment for AVX-512/AVX2 SIMD instructions
-  // int alignment = 64; // 64 bytes = 512 bits for AVX-512
+  // HACK: Testing memory alignment to get aligned SIMD instructions
+  // int alignment = 64; // 64 bytes = 512 bits alignment
   // if (posix_memalign((void **)&planes_ptr[OLD].data, alignment,
   //                    frame_size * sizeof(double)) != 0) {
   //   return ERROR_MEMORY_ALLOCATION;
@@ -693,6 +693,7 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
     // manage the malloc fail
     return ERROR_MEMORY_ALLOCATION;
 
+  // NOTE: This old allocation method doesn't touch memory correctly
   // memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
   // memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
 
@@ -778,14 +779,16 @@ int memory_release(plane_t *planes, buffers_t *buffer_ptr) {
   return 0;
 }
 
-// NOTE: Review this code though It is all written by the professor
 int output_energy_stat(int step, plane_t *plane, double budget, int Me,
                        MPI_Comm *Comm) {
+  // Set initial energy
   double system_energy = 0;
   double tot_system_energy = 0;
+  // Every rank compute its total energy for the patch using parallel reduction
   get_total_energy(plane, &system_energy);
 
-  // Reduce by patch knowing system energy
+  // Reduce by patch to get the final energy
+  // NOTE: To review actually
   MPI_Reduce(&system_energy, &tot_system_energy, 1, MPI_DOUBLE, MPI_SUM, 0,
              *Comm);
 
@@ -805,6 +808,7 @@ int output_energy_stat(int step, plane_t *plane, double budget, int Me,
 }
 
 int dump(const double *data, const uint size[2], const char *filename) {
+  // Function to dump each rank ptach into a file
   if ((filename != NULL) && (filename[0] != '\0')) {
     FILE *outfile = fopen(filename, "wb");
     if (outfile == NULL)
