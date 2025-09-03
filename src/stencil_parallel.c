@@ -125,7 +125,6 @@ int main(int argc, char **argv) {
 
     // update grid points
     update_plane(periodic, N, &planes[current], &planes[!current]);
-    // update_plane_tiled(periodic, N, &planes[current], &planes[!current]);
 
     comp_times[iter] = MPI_Wtime() - t_comp_start;
 
@@ -257,7 +256,7 @@ int initialize(MPI_Comm *Comm,
     // Just on prints the error
     if (Me == 0)
       fprintf(stderr, "Error: planes pointer is NULL\n");
-    return 5; // error code
+    return ERROR_NULL_POINTER;
   }
 
   // NOTE: What was that
@@ -351,17 +350,17 @@ int initialize(MPI_Comm *Comm,
   if ((*S)[_x_] <= 0 || (*S)[_y_] <= 0) {
     if (Me == 0)
       fprintf(stderr, "Error: grid size must be positive\n");
-    return 2;
+    return ERROR_INVALID_GRID_SIZE;
   }
   if (*Nsources < 0) {
     if (Me == 0)
       fprintf(stderr, "Error: Nsources must be >= 0\n");
-    return 3;
+    return ERROR_INVALID_NUM_SOURCES;
   }
   if (*Niterations <= 0) {
     if (Me == 0)
       fprintf(stderr, "Error: Niterations must be > 0\n");
-    return 4;
+    return ERROR_INVALID_NUM_ITERATIONS;
   }
 
   // ··································································
@@ -385,14 +384,14 @@ int initialize(MPI_Comm *Comm,
     else
       Grid[_x_] = 1, Grid[_y_] = Ntasks;
   } else {
-    int Nf;
+    int nf;
     uint *factors;
     uint first = 1;
-    ret = simple_factorization(Ntasks, &Nf, &factors);
+    ret = simple_factorization(Ntasks, &nf, &factors);
 
-    // for (int i = 0; (i < Nf) && ((Ntasks / first) / first > formfactor);
+    // for (int i = 0; (i < nf) && ((Ntasks / first) / first > formfactor);
     // i++) NOTE: Adding explicit casting
-    for (int i = 0; i < Nf && ((double)Ntasks / (first * first) > formfactor);
+    for (int i = 0; i < nf && ((double)Ntasks / (first * first) > formfactor);
          i++)
       first *= factors[i];
 
@@ -509,7 +508,7 @@ int initialize(MPI_Comm *Comm,
   if (ret != 0) {
     if (Me == 0)
       fprintf(stderr, "Error initializing sources\n");
-    return 6;
+    return ERROR_INITIALIZE_SOURCES;
   }
 
   return 0;
@@ -521,7 +520,7 @@ int initialize(MPI_Comm *Comm,
 // Think of using a Cartesian decomposition Topology-aware decomposition: With
 // the correct topology:
 // https://edoras.sdsu.edu/~mthomas/sp17.605/lectures/MPI-Cart-Comms-and-Topos.pdf
-uint simple_factorization(uint A, int *Nfactors, uint **factors)
+uint simple_factorization(uint a, int *nfactors, uint **factors)
 /*
  * rough factorization;
  * assumes that A is small, of the order of <~ 10^5 max,
@@ -529,29 +528,29 @@ uint simple_factorization(uint A, int *Nfactors, uint **factors)
  #
  */
 {
-  int N = 0;
+  int n = 0;
   uint f = 2;
-  uint _A_ = A;
+  uint _a_ = a;
 
-  while (f < A) {
-    while (_A_ % f == 0) {
-      N++;
-      _A_ /= f;
+  while (f < a) {
+    while (_a_ % f == 0) {
+      n++;
+      _a_ /= f;
     }
     f++;
   }
 
-  *Nfactors = N;
-  uint *_factors_ = (uint *)malloc(N * sizeof(uint));
+  *nfactors = n;
+  uint *_factors_ = (uint *)malloc(n * sizeof(uint));
 
-  N = 0;
+  n = 0;
   f = 2;
-  _A_ = A;
+  _a_ = a;
 
-  while (f < A) {
-    while (_A_ % f == 0) {
-      _factors_[N++] = f;
-      _A_ /= f;
+  while (f < a) {
+    while (_a_ % f == 0) {
+      _factors_[n++] = f;
+      _a_ /= f;
     }
     f++;
   }
@@ -683,12 +682,12 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   if (planes_ptr == NULL)
     // an invalid pointer has been passed
     // manage the situation
-    return 1;
+    return ERROR_NULL_POINTER;
 
   if (buffers_ptr == NULL)
     // an invalid pointer has been passed
     // manage the situation
-    return 2;
+    return ERROR_NULL_POINTER;
 
   // ··················································
   // allocate memory for data
@@ -697,15 +696,32 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   unsigned int frame_size =
       (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
 
-  planes_ptr[OLD].data = (double *)malloc(frame_size * sizeof(double));
+  // NEW: Aligned allocation for SIMD performance
+  // Use 64-byte alignment for AVX-512/AVX2 SIMD instructions
+  int alignment = 64; // 64 bytes = 512 bits for AVX-512
+  if (posix_memalign((void **)&planes_ptr[OLD].data, alignment,
+                     frame_size * sizeof(double)) != 0) {
+    return ERROR_MEMORY_ALLOCATION;
+  }
+
+  if (posix_memalign((void **)&planes_ptr[NEW].data, alignment,
+                     frame_size * sizeof(double)) != 0) {
+    free(planes_ptr[OLD].data);
+    return ERROR_MEMORY_ALLOCATION;
+  }
+
+  // OLD: Standard malloc allocation (commented out but preserved)
+  /*
+  // planes_ptr[OLD].data = (double *)malloc(frame_size * sizeof(double));
   if (planes_ptr[OLD].data == NULL)
     // manage the malloc fail
-    return -1;
+    return ERROR_MEMORY_ALLOCATION;
 
   planes_ptr[NEW].data = (double *)malloc(frame_size * sizeof(double));
   if (planes_ptr[NEW].data == NULL)
     // manage the malloc fail
-    return -2;
+    return ERROR_MEMORY_ALLOCATION;
+  */
 
   // memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
   // memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));

@@ -41,6 +41,20 @@
 
 typedef unsigned int uint;
 
+// Error codes
+#define ERROR_SUCCESS 0
+#define ERROR_INVALID_GRID_SIZE 1
+#define ERROR_INVALID_NUM_SOURCES 2
+#define ERROR_INVALID_NUM_ITERATIONS 3
+#define ERROR_NULL_POINTER 4
+#define ERROR_MEMORY_ALLOCATION 5
+#define ERROR_INITIALIZE_SOURCES 6
+#define ERROR_MPI_FAILURE 7
+
+// Stencil coefficients
+#define ALPHA 0.5
+#define BETA 0.125
+
 // ============================================================
 //
 // function prototypes
@@ -107,9 +121,9 @@ inline int update_plane(const int periodic, const uint size[2],
   const int x_size = size[_x_];
   const int y_size = size[_y_];
 
-  // Pre-compute constants to avoid repeated calculations
-  const double alpha = 0.5;
-  const double beta = (1.0 - alpha) * 0.25; // (1-alpha)/4
+  // Use defined stencil coefficients
+  const double alpha = ALPHA;
+  const double beta = (1.0 - ALPHA) * 0.25; // (1-alpha)/4
 
 // NOTE: loop unrolling doesn't seem to increase performance
 // #pragma omp parallel for collapse(2)

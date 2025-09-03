@@ -6,6 +6,7 @@
  */
 
 #include "stencil_serial.h"
+#include "stencil_parallel.h"  // For error code macros
 
 int dump(const double *, const uint[2], const char *, double *, double *);
 
@@ -179,8 +180,7 @@ int memory_allocate(const uint size[2], double **planes_ptr)
   if (planes_ptr == NULL)
     // an invalid pointer has been passed
     // manage the situation
-    // Something like return the error code 1 ?
-    return 1;
+    return ERROR_NULL_POINTER;
 
   unsigned int bytes = (size[_x_] + 2) * (size[_y_] + 2);
 
@@ -188,7 +188,7 @@ int memory_allocate(const uint size[2], double **planes_ptr)
 
   // Check if malloc fails
   if (planes_ptr[OLD] == NULL)
-    return 2;
+    return ERROR_MEMORY_ALLOCATION;
 
   memset(planes_ptr[OLD], 0, 2 * bytes * sizeof(double));
   planes_ptr[NEW] = planes_ptr[OLD] + bytes;
@@ -234,7 +234,7 @@ int dump(const double *data, const uint size[2], const char *filename,
   if ((filename != NULL) && (filename[0] != '\0')) {
     FILE *outfile = fopen(filename, "wb");
     if (outfile == NULL)
-      return 2;
+      return ERROR_MEMORY_ALLOCATION;
 
     float *array = (float *)malloc(size[0] * sizeof(float));
 
@@ -267,5 +267,5 @@ int dump(const double *data, const uint size[2], const char *filename,
       *max = _max_;
     return 0;
   } else
-    return 1;
+    return ERROR_NULL_POINTER;
 }

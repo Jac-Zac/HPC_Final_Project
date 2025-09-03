@@ -4,6 +4,7 @@
  */
 
 #include <getopt.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +29,16 @@
 #define _y_ 1
 
 typedef unsigned int uint;
+
+// Error codes
+#define ERROR_SUCCESS 0
+#define ERROR_INVALID_GRID_SIZE 1
+#define ERROR_INVALID_NUM_SOURCES 2
+#define ERROR_INVALID_NUM_ITERATIONS 3
+#define ERROR_NULL_POINTER 4
+#define ERROR_MEMORY_ALLOCATION 5
+#define ERROR_INITIALIZE_SOURCES 6
+#define ERROR_MPI_FAILURE 7
 
 typedef uint vec2_t[2];
 typedef double *restrict buffers_t[4];
@@ -54,8 +65,6 @@ extern int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
 extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 
 extern int update_plane(const int, const vec2_t, const plane_t *, plane_t *);
-extern int update_plane_tiled(const int, const vec2_t, const plane_t *,
-                              plane_t *);
 
 extern int get_total_energy(plane_t *, double *);
 
@@ -237,90 +246,6 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
   return MPI_SUCCESS;
 }
 
-inline int update_plane_tiled(const int periodic,
-                              const vec2_t N, /* MPI grid of ranks */
-                              const plane_t *oldplane, plane_t *newplane) {
-  const uint f_xsize = oldplane->size[_x_] + 2;
-  const uint xsize = oldplane->size[_x_];
-  const uint ysize = oldplane->size[_y_];
-
-  double *restrict newp = newplane->data;
-  const double *restrict oldp = oldplane->data;
-
-  const double c_center = 0.5;
-  const double c_neigh = 0.125;
-
-  /* Tiling params: tune these. Good starting values: TI = 512, TJ = 64 */
-  // const uint TI = 512; /* tile width in i (columns) */
-  // const uint TJ = 64;  /* tile height in j (rows)  */
-  const uint TI = 1024; /* tile width in i (columns) */
-  const uint TJ = 64;   /* tile height in j (rows)  */
-
-  /* Hint alignment to compiler (assume caller allocated 64-byte aligned) */
-  const double *const oldp_a =
-      (const double *)__builtin_assume_aligned(oldp, 64);
-  double *const newp_a = (double *)__builtin_assume_aligned(newp, 64);
-
-#pragma omp parallel for schedule(static)
-  for (uint jb = 1; jb <= ysize; jb += TJ) {
-    const uint jend = (jb + TJ - 1 <= ysize) ? (jb + TJ - 1) : ysize;
-
-    /* For each row in the j-tile */
-    for (uint j = jb; j <= jend; ++j) {
-      /* precompute base pointers for this row */
-      const double *__restrict__ row_above = oldp_a + (j - 1) * f_xsize;
-      const double *__restrict__ row_center = oldp_a + j * f_xsize;
-      const double *__restrict__ row_below = oldp_a + (j + 1) * f_xsize;
-      double *__restrict__ row_new = newp_a + j * f_xsize;
-
-      /* i-tiling inside the row to keep working set small and allow
-       * vectorization */
-      for (uint ib = 1; ib <= xsize; ib += TI) {
-        const uint iend = (ib + TI - 1 <= xsize) ? (ib + TI - 1) : xsize;
-
-        /* Hint to compiler: these pointers are 64-byte aligned and inner loop
-         * is SIMD-friendly */
-        // #pragma omp simd aligned(row_above, row_center, row_below, row_new
-        // : 64)
-        for (uint i = ib; i <= iend; ++i) {
-          const double center = row_center[i];
-          const double left = row_center[i - 1];
-          const double right = row_center[i + 1];
-          const double up = row_above[i];
-          const double down = row_below[i];
-
-          row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-        }
-      } /* end ib loop */
-    } /* end j loop (rows in a tile) */
-  } /* end jb loop (j-tiles) */
-
-  /* Do local periodic ghost propagation inside same parallel region so
-   * threads touch local pages */
-  if (periodic) {
-    if (N[_x_] == 1) {
-      for (uint j = 1; j <= ysize; ++j) {
-        double *row = newp_a + j * f_xsize;
-        row[0] = row[xsize];
-        row[xsize + 1] = row[1];
-      }
-    }
-    if (N[_y_] == 1) {
-      /* distribute top/bottom ghost writes across threads */
-      for (uint i = 1; i <= xsize; ++i) {
-        double *row_top = newp_a + 1 * f_xsize;
-        double *row_bottom = newp_a + ysize * f_xsize;
-        double *row_topghost = newp_a + 0 * f_xsize;
-        double *row_bottomghost = newp_a + (ysize + 1) * f_xsize;
-        row_topghost[i] = row_bottom[i];
-        row_bottomghost[i] = row_top[i];
-      }
-    }
-  }
-
-  return 0;
-}
-
 inline int update_plane(const int periodic,
                         const vec2_t N, // MPI grid of ranks
                         const plane_t *oldplane, plane_t *newplane) {
@@ -332,9 +257,9 @@ inline int update_plane(const int periodic,
   double *restrict newp = newplane->data;
   const double *restrict oldp = oldplane->data;
 
-  // Pre-compute stencil coefficients for clarity
-  const double c_center = 0.5;  // = 1/2
-  const double c_neigh = 0.125; // = 1/8
+  // Use defined stencil coefficients
+  const double c_center = 0.5;
+  const double c_neigh = 0.125; // 1/8
 
 // Row-parallel, inner loop vectorized by compiler
 #pragma omp parallel for schedule(static)
