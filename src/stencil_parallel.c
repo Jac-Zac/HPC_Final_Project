@@ -670,46 +670,39 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
       (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
 
   // HACK: Testing memory alignment to get aligned SIMD instructions
-  // int alignment = 64; // 64 bytes = 512 bits alignment
-  // if (posix_memalign((void **)&planes_ptr[OLD].data, alignment,
-  //                    frame_size * sizeof(double)) != 0) {
-  //   return ERROR_MEMORY_ALLOCATION;
-  // }
-  //
-  // if (posix_memalign((void **)&planes_ptr[NEW].data, alignment,
-  //                    frame_size * sizeof(double)) != 0) {
-  //   free(planes_ptr[OLD].data);
-  //   return ERROR_MEMORY_ALLOCATION;
-  // }
+  int alignment = 64; // 64 bytes = 512 bits alignment
+  if (posix_memalign((void **)&planes_ptr[OLD].data, alignment,
+                     frame_size * sizeof(double)) != 0) {
+    return ERROR_MEMORY_ALLOCATION;
+  }
+
+  if (posix_memalign((void **)&planes_ptr[NEW].data, alignment,
+                     frame_size * sizeof(double)) != 0) {
+    free(planes_ptr[OLD].data);
+    return ERROR_MEMORY_ALLOCATION;
+  }
 
   // OLD: Standard malloc allocation (commented out but preserved)
-  planes_ptr[OLD].data = (double *)malloc(frame_size * sizeof(double));
-  if (planes_ptr[OLD].data == NULL)
-    // manage the malloc fail
-    return ERROR_MEMORY_ALLOCATION;
-
-  planes_ptr[NEW].data = (double *)malloc(frame_size * sizeof(double));
-  if (planes_ptr[NEW].data == NULL)
-    // manage the malloc fail
-    return ERROR_MEMORY_ALLOCATION;
+  // planes_ptr[OLD].data = (double *)malloc(frame_size * sizeof(double));
+  // if (planes_ptr[OLD].data == NULL)
+  //   // manage the malloc fail
+  //   return ERROR_MEMORY_ALLOCATION;
+  //
+  // planes_ptr[NEW].data = (double *)malloc(frame_size * sizeof(double));
+  // if (planes_ptr[NEW].data == NULL)
+  //   // manage the malloc fail
+  //   return ERROR_MEMORY_ALLOCATION;
 
   // NOTE: This old allocation method doesn't touch memory correctly
   // memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
   // memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
 
   // Initialize memory by touching it correctly
-  // #pragma omp parallel for schedule(static)
-  //   for (unsigned int i = 0; i < frame_size; i++) {
-  //     planes_ptr[OLD].data[i] = 0.0;
-  //     planes_ptr[NEW].data[i] = 0.0;
-  //   }
-  //
-  // NOTE: Introduced for consistency
   const uint f_xsize = planes_ptr->size[_x_] + 2;
   const uint xsize = planes_ptr->size[_x_];
   const uint ysize = planes_ptr->size[_y_];
 
-#pragma omp parallel for collapse(2) schedule(static)
+#pragma omp parallel for schedule(static)
   for (uint j = 0; j < ysize + 2; ++j) {
     for (uint i = 0; i < xsize + 2; ++i) {
       planes_ptr[OLD].data[j * f_xsize + i] = 0.0;
