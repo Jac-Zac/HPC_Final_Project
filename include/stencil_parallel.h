@@ -28,6 +28,9 @@
 #define _x_ 0
 #define _y_ 1
 
+// #define MEMORY_ALIGNMENT 64  // 64 bytes = 512 bits alignment for SIMD
+#define MEMORY_ALIGNMENT 32 // 64 bytes = 512 bits alignment for SIMD
+
 typedef unsigned int uint;
 
 // Error codes
@@ -272,6 +275,7 @@ inline int update_plane(const int periodic,
     const double *row_below = oldp + (j + 1) * f_xsize;
     double *row_new = newp + j * f_xsize;
 
+#pragma omp simd
     for (uint i = 1; i <= xsize; ++i) {
 
       // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even

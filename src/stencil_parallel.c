@@ -670,13 +670,12 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
       (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
 
   // HACK: Testing memory alignment to get aligned SIMD instructions
-  int alignment = 64; // 64 bytes = 512 bits alignment
-  if (posix_memalign((void **)&planes_ptr[OLD].data, alignment,
+  if (posix_memalign((void **)&planes_ptr[OLD].data, MEMORY_ALIGNMENT,
                      frame_size * sizeof(double)) != 0) {
     return ERROR_MEMORY_ALLOCATION;
   }
 
-  if (posix_memalign((void **)&planes_ptr[NEW].data, alignment,
+  if (posix_memalign((void **)&planes_ptr[NEW].data, MEMORY_ALIGNMENT,
                      frame_size * sizeof(double)) != 0) {
     free(planes_ptr[OLD].data);
     return ERROR_MEMORY_ALLOCATION;
