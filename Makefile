@@ -39,7 +39,7 @@ test:
 	$(MAKE) clean
 	$(MAKE) all
 	mkdir -p data_logging
-	. .env/bin/activate && pytest -v tests
+	. .env/bin/activate && pytest -v python_src/testing
 	$(MAKE) clean
 
 run:

@@ -7,7 +7,7 @@
 #SBATCH --partition=dcgp_usr_prod
 #SBATCH -A uTS25_Tornator_0
 #SBATCH -t 00:00:30
-#SBATCH --job-name=stencil_test_tiles
+#SBATCH --job-name=stencil_testing
 
 # Set the executable name
 EXEC=./stencil_parallel
@@ -29,9 +29,6 @@ export OMP_PLACES=cores
 export OMP_PROC_BIND=close
 export OMP_DISPLAY_AFFINITY=TRUE
 
-# Loading necessary module
-module load openMPI/5.0.5
-
 # Set the total number of MPI tasks
 TOTAL_MPI_TASKS=${SLURM_NTASKS}
 
@@ -47,17 +44,8 @@ echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
 echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 
 # Compiling with logging the serial version
-make MODE=parallel TILE=1
+make MODE=parallel
 
 # Run the code using mpirun
-$EXEC $ARGS > ${OMP_NUM_THREADS}_TILED.log
-
-# Clean
-make clean
-
-# Compiling with logging the serial version
-make MODE=parallel TILE=0
-$EXEC $ARGS > ${OMP_NUM_THREADS}_NOT_TILED.log
-
-# Clean up after
+$EXEC $ARGS > ${OMP_NUM_THREADS}.log
 make clean

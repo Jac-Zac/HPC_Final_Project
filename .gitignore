@@ -41,6 +41,3 @@ stencil_parallel
 **/*.jpeg
 **/*.svg
 **/*.gif
-
-# Project-specific
-access_cineca.sh

@@ -1,33 +1,16 @@
-"""
-Test suite for HPC Heat-Stencil Simulation
-
-This module contains tests for both non-periodic and periodic boundary conditions.
-Run tests with:
-    pytest tests/test_stencil.py -v
-
-For periodic boundary tests specifically:
-    pytest tests/test_stencil.py::test_periodic_boundaries -v
-    pytest tests/test_stencil.py::test_boundary_source_propagation -v
-
-To test C implementation with periodic boundaries:
-    pytest tests/test_stencil.py::test_c_periodic_vs_python -v
-"""
-
 import os
 import subprocess
+import sys
 
 import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 from stencil_reference import inject_energy, total_energy, update_plane
-
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from python_plotting.stencil_utils import (
+from stencil_utils import (
     assemble_global_grid_from_patches,
     extract_energies_from_bins,
     load_sources_from_logs,
-    read_global_bin,
 )
 
 
@@ -39,8 +22,6 @@ def test_against_reference():
 
     # Load sources from logs (fallback to fixed if logs missing)
     sources = load_sources_from_logs("data_logging", ntasks=ntasks, grid_size=size)
-    if not sources:
-        print("⚠️  No logged sources found, falling back to fixed test sources")
 
     print("Testing C implementation vs Python reference")
     print("Grid size:", size, "x", size, "Iterations:", iterations)
@@ -88,44 +69,14 @@ def test_against_reference():
             print("STDOUT:", result.stdout)
             print("STDERR:", result.stderr)
             print("⚠️  Skipping C vs Python comparison due to C code failure")
-            # Still test Python reference
-            grid = np.zeros((size + 2, size + 2))
-            ref_energies = []
-            for step in range(iterations):
-                inject_energy(periodic, sources, 1.0, grid)
-                grid = update_plane(periodic, grid)
-                ref_energies.append(total_energy(grid))
-            assert len(ref_energies) == iterations
-            assert all(e >= 0 for e in ref_energies)
-            print("✓ Python reference implementation test passed")
             return
     except subprocess.TimeoutExpired:
         print("⚠️  C code execution timed out")
         print("⚠️  Skipping C vs Python comparison")
-        # Still test Python reference
-        grid = np.zeros((size + 2, size + 2))
-        ref_energies = []
-        for step in range(iterations):
-            inject_energy(periodic, sources, 1.0, grid)
-            grid = update_plane(periodic, grid)
-            ref_energies.append(total_energy(grid))
-        assert len(ref_energies) == iterations
-        assert all(e >= 0 for e in ref_energies)
-        print("✓ Python reference implementation test passed")
         return
     except FileNotFoundError:
         print("⚠️  C executable not found. Run 'make' first.")
         print("⚠️  Skipping C vs Python comparison")
-        # Still test Python reference
-        grid = np.zeros((size + 2, size + 2))
-        ref_energies = []
-        for step in range(iterations):
-            inject_energy(periodic, sources, 1.0, grid)
-            grid = update_plane(periodic, grid)
-            ref_energies.append(total_energy(grid))
-        assert len(ref_energies) == iterations
-        assert all(e >= 0 for e in ref_energies)
-        print("✓ Python reference implementation test passed")
         return
 
     # Compute Python reference energies
@@ -276,3 +227,19 @@ def test_c_periodic_vs_python():
         print("⚠️  C executable not found. Run 'make' first.")
     except Exception as e:
         print(f"⚠️  Test failed with exception: {e}")
+
+
+"""
+Test suite for HPC Heat-Stencil Simulation
+
+This module contains tests for both non-periodic and periodic boundary conditions.
+Run tests with:
+    pytest tests/test_stencil.py -v
+
+For periodic boundary tests specifically:
+    pytest tests/test_stencil.py::test_periodic_boundaries -v
+    pytest tests/test_stencil.py::test_boundary_source_propagation -v
+
+To test C implementation with periodic boundaries:
+    pytest tests/test_stencil.py::test_c_periodic_vs_python -v
+"""

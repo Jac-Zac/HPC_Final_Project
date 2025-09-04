@@ -1,110 +1,50 @@
 #!/bin/bash
-#SBATCH --job-name=stencil_mpi_scaling
-#SBATCH --partition=EPYC
-#SBATCH --mem=0G
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=16      # Set to the number of NUMA domains on your node
-#SBATCH --cpus-per-task=8        # Set to the number of cores per NUMA domain
-#SBATCH --time=00:05:00
+#SBATCH --ntasks=8                 # request the maximum you’ll use
+#SBATCH --ntasks-per-node=8        # adapt to your cluster layout
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=0
+#SBATCH --partition=EPYC
+#SBATCH -t 00:10:00
 #SBATCH --exclusive
+#SBATCH --job-name=stencil_scaling
 
-# --- Configuration ---
 EXEC=./stencil_parallel
+# ARGS="-x 50000 -y 50000 -n 100 -o 0"
 ARGS="-x 20000 -y 20000 -n 100 -o 0"
-RESULTS_FILE=mpi_scaling_numa_mapped.txt
 
-# --- Environment Setup ---
-module load openMPI/5.0.5
-
-echo "--- Compiling the application ---"
-make MODE=parallel LOG=0
-
-# --- OpenMP Settings ---
+# OpenMP settings
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export OMP_PLACES=cores
 export OMP_PROC_BIND=close
 export OMP_DISPLAY_AFFINITY=TRUE
 
-# Get hostname for rankfile
-HOSTNAME=$(hostname)
+module load openMPI/5.0.5
 
-# --- Function to generate rankfile ---
-generate_rankfile() {
-    local num_tasks=$1
-    local rankfile_name="rankfile_${num_tasks}.txt"
+# Compile
+make MODE=parallel LOG=0
 
-    echo "# Rankfile for $num_tasks MPI tasks with NUMA-spanning cores" > $rankfile_name
-
-    # --- FIX 2: Make the calculation robust and independent of SLURM variables ---
-    # According to your lscpu, there are 16 cores per NUMA domain (e.g., node0 is 0-15)
-    # This is the correct stride value to step between NUMA domains.
-    local CORES_PER_NUMA=16
-
-    for ((rank=0; rank<num_tasks; rank++)); do
-        # Generate core list: rank + (numa_region * 16)
-        core_list=""
-        for ((numa=0; numa<8; numa++)); do
-            core=$((rank + numa * CORES_PER_NUMA)) # Use the robust variable
-            if [ $numa -eq 0 ]; then
-                core_list="$core"
-            else
-                core_list="$core_list,$core"
-            fi
-        done
-        echo "rank $rank=${HOSTNAME} slot=$core_list" >> $rankfile_name
-    done
-
-    echo $rankfile_name
-}
-
-# --- Results File Header ---
+# Output summary file
+RESULTS_FILE=mpi_scaling_epyc.txt
 echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
-# --- Scaling Loop ---
-# for TASKS in 1 2 4 8
-for TASKS in 1 2 3
+# Loop over task counts
+for TASKS in 1 2 4 8 16
 do
-    echo ">>> Running with $TASKS MPI tasks, ${OMP_NUM_THREADS} threads per task"
-    
-    # Generate appropriate rankfile for this number of tasks
-    RANKFILE=$(generate_rankfile $TASKS)
-    
-    echo "Generated rankfile: $RANKFILE"
-    cat $RANKFILE
-    echo "---"
-
+    echo ">>> Running with $TASKS MPI tasks"
     OUTPUT=$(mktemp)
 
-    # --- MPI Execution with rankfile ---
-    mpirun -np $TASKS \
-           --map-by rankfile:file=$RANKFILE \
-           --bind-to core \
-           --display-map \
-           --report-bindings \
-           $EXEC $ARGS > $OUTPUT
+    # Run
+    mpirun -np $TASKS --report-bindings --bind-to numa $EXEC $ARGS > $OUTPUT
 
-    # --- Data Extraction ---
+    # Extract values from output log
     TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
     MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
     MAX_COMM=$(grep "Max communication time" $OUTPUT | awk '{print $6}')
     ENERGY_TIME=$(grep "Total energy computaton time" $OUTPUT | awk '{print $5}')
 
-    # --- Save Results ---
-    if [ -n "$TOTAL_TIME" ]; then
-        echo "$TASKS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
-        echo "Results: Tasks=$TASKS, Total=$TOTAL_TIME, Comp=$MAX_COMP, Comm=$MAX_COMM, Energy=$ENERGY_TIME"
-    else
-        echo "$TASKS,ERROR,ERROR,ERROR,ERROR" >> $RESULTS_FILE
-        echo "Error parsing output for $TASKS tasks. Check the temporary output file: $OUTPUT"
-        # Don't remove OUTPUT file if there's an error so you can debug
-        continue
-    fi
+    # Append to results file
+    echo "$TASKS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
 
     rm $OUTPUT
-    echo "---"
 done
-
-echo "Scaling test complete. Results are in $RESULTS_FILE"
-
-# Clean up rankfiles
-rm -f rankfile_*.txt
