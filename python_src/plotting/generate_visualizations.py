@@ -11,11 +11,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import matplotlib
-
-from python_plotting.stencil_utils import (
-    assemble_global_grid_from_patches,
-    load_sources_from_logs,
-)
+from stencil_utils import assemble_global_grid_from_patches, load_sources_from_logs
 
 matplotlib.use("Agg")  # Use non-interactive backend
 import matplotlib.animation as animation

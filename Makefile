@@ -53,7 +53,7 @@ visualize:
 	@echo "Running simulation with visualization data..."
 	mpirun -np 4 ./stencil_parallel -x 100 -y 100 -n 200 -o 1 -t 1 -e 10 -p 1
 	@echo "Generating visualizations..."
-	. .env/bin/activate && python3 python_plotting/generate_visualizations.py
+	. .env/bin/activate && python3 python_src/plotting/generate_visualizations.py
 
 # Clean built executables
 clean:
