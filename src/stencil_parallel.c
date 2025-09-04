@@ -2,22 +2,22 @@
 
 int main(int argc, char **argv) {
   MPI_Comm my_COMM_WORLD;
-  int Rank, Ntasks;
+  int rank, num_tasks;
   int neighbours[4];
 
-  int Niterations;
+  int num_iterations;
   int periodic;
-  vec2_t S, N;
+  vec2_t global_grid_size, mpi_grid_dims;
 
-  int Nsources;
-  int Nsources_local;
-  vec2_t *Sources_local;
+  int num_sources;
+  int num_sources_local;
+  vec2_t *sources_local;
   double energy_per_source;
 
   plane_t planes[2];
   buffers_t buffers[2];
 
-  int output_energy_stat_per_step;
+  int output_energy_stats;
 
   // initialize MPI envrionment
   {
@@ -28,35 +28,42 @@ int main(int argc, char **argv) {
     // without restrictions. (Might be useful)
     MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &level_obtained);
     if (level_obtained < MPI_THREAD_FUNNELED) {
-      printf("MPI_thread level obtained is %d instead of %d\n", level_obtained,
-             MPI_THREAD_FUNNELED);
+      fprintf(
+          stderr,
+          "Rank %d: ERROR - MPI thread level obtained (%d) is insufficient. "
+          "Required: %d (MPI_THREAD_FUNNELED)\n",
+          rank, level_obtained, MPI_THREAD_FUNNELED);
       MPI_Finalize();
       exit(1);
     }
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &Rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &Ntasks);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &num_tasks);
     MPI_Comm_dup(MPI_COMM_WORLD, &my_COMM_WORLD);
   }
 
   // argument checking and setting
-  int ret = initialize(&my_COMM_WORLD, Rank, Ntasks, argc, argv, &S, &N,
-                       &periodic, &output_energy_stat_per_step, neighbours,
-                       &Niterations, &Nsources, &Nsources_local, &Sources_local,
-                       &energy_per_source, &planes[0], &buffers[0]);
+  int ret =
+      initialize(&my_COMM_WORLD, rank, num_tasks, argc, argv, &global_grid_size,
+                 &mpi_grid_dims, &periodic, &output_energy_stats, neighbours,
+                 &num_iterations, &num_sources, &num_sources_local,
+                 &sources_local, &energy_per_source, &planes[0], &buffers[0]);
 
   if (ret) {
-    printf("task %d is opting out with termination code %d\n", Rank, ret);
+    printf("task %d is opting out with termination code %d\n", rank, ret);
 
     MPI_Finalize();
     return SUCCESS;
   }
 
   // Allocate timing arrays for logging
-  double *comp_times = (double *)malloc(Niterations * sizeof(double));
-  double *comm_times = (double *)malloc(Niterations * sizeof(double));
+  double *comp_times = (double *)malloc(num_iterations * sizeof(double));
+  double *comm_times = (double *)malloc(num_iterations * sizeof(double));
   if (comp_times == NULL || comm_times == NULL) {
-    fprintf(stderr, "Rank %d: Failed to allocate timing arrays.\n", Rank);
+    fprintf(stderr,
+            "Rank %d: ERROR - Failed to allocate timing arrays "
+            "(comp_times: %p, comm_times: %p)\n",
+            rank, (void *)comp_times, (void *)comm_times);
     MPI_Abort(my_COMM_WORLD, 1);
   }
 
@@ -65,14 +72,14 @@ int main(int argc, char **argv) {
 
   double total_start_time = MPI_Wtime();
   int current = OLD;
-  for (int iter = 0; iter < Niterations; ++iter) {
+  for (int iter = 0; iter < num_iterations; ++iter) {
     double t_comm_start, t_comp_start;
 
     MPI_Request reqs[8];
 
     // new energy from sources
-    inject_energy(periodic, Nsources_local, Sources_local, energy_per_source,
-                  &planes[current], N);
+    inject_energy(periodic, num_sources_local, sources_local, energy_per_source,
+                  &planes[current], mpi_grid_dims);
 
     /* --------------------------------------------------------------------- */
 
@@ -102,7 +109,10 @@ int main(int argc, char **argv) {
 
     // Return if unsuccessful
     if (ret != MPI_SUCCESS) {
-      return ret;
+      fprintf(stderr, "Rank %d: MPI halo exchange failed with error %d\n", rank,
+              ret);
+      MPI_Abort(my_COMM_WORLD, ret);
+      return ERROR_MPI_FAILURE;
     }
 
     // [C] copy the haloes data
@@ -115,19 +125,19 @@ int main(int argc, char **argv) {
     t_comp_start = MPI_Wtime();
 
     // update grid points
-    update_plane(periodic, N, &planes[current], &planes[!current]);
+    update_plane(periodic, mpi_grid_dims, &planes[current], &planes[!current]);
 
     comp_times[iter] = MPI_Wtime() - t_comp_start;
 
     /* ------------------------- */
     // output if needed
-    if (output_energy_stat_per_step) {
+    if (output_energy_stats) {
       output_energy_stat(iter, &planes[!current],
-                         (iter + 1) * Nsources * energy_per_source, Rank,
+                         (iter + 1) * num_sources * energy_per_source, rank,
                          &my_COMM_WORLD);
 
       char filename[128];
-      sprintf(filename, "data_logging/%d_plane_%05d.bin", Rank, iter);
+      sprintf(filename, "data_logging/%d_plane_%05d.bin", rank, iter);
       int dump_status =
           dump(planes[!current].data, planes[!current].size, filename);
       if (dump_status != 0) {
@@ -145,7 +155,7 @@ int main(int argc, char **argv) {
 
   double total_comp_time_local = 0.0;
   double total_comm_time_local = 0.0;
-  for (int i = 0; i < Niterations; ++i) {
+  for (int i = 0; i < num_iterations; ++i) {
     total_comp_time_local += comp_times[i];
     total_comm_time_local += comm_times[i];
   }
@@ -161,11 +171,11 @@ int main(int argc, char **argv) {
 
   double t_tot_energy_start = MPI_Wtime();
   output_energy_stat(-1, &planes[!current],
-                     Niterations * Nsources * energy_per_source, Rank,
+                     num_iterations * num_sources * energy_per_source, rank,
                      &my_COMM_WORLD);
   double t_tot_energy_end = MPI_Wtime();
 
-  if (Rank == 0) {
+  if (rank == 0) {
     printf("Total time: %f seconds\n", total_time);
     printf("Max computation time across ranks: %f seconds\n", max_comp_time);
     printf("Max communication time across ranks: %f seconds\n", max_comm_time);
@@ -174,8 +184,12 @@ int main(int argc, char **argv) {
   }
 
   // --- Cleanup ---
-  free(comp_times);
-  free(comm_times);
+  if (comp_times != NULL) {
+    free(comp_times);
+  }
+  if (comm_times != NULL) {
+    free(comm_times);
+  }
   memory_release(planes, buffers);
 
   MPI_Finalize();
@@ -239,7 +253,7 @@ initialize(MPI_Comm *Comm, // the communicator
   if (planes == NULL) {
     // Just on prints the error
     if (Me == 0)
-      fprintf(stderr, "Error: planes pointer is NULL\n");
+      fprintf(stderr, "Rank %d: ERROR - planes pointer is NULL\n", Me);
     return ERROR_NULL_POINTER;
   }
 
@@ -298,17 +312,17 @@ initialize(MPI_Comm *Comm, // the communicator
         break;
       case 'h': {
         if (Me == 0)
-          printf("\nvalid options are ( values btw [] are the default values "
-                 "):\n"
+          printf("\nValid options (values in [] are defaults):\n"
                  "-x    x size of the plate [10000]\n"
                  "-y    y size of the plate [10000]\n"
-                 "-e    how many energy sources on the plate [4]\n"
-                 "-E    how many energy sources on the plate [1.0]\n"
-                 "-n    how many iterations [1000]\n"
-                 "-0    Output energy stat defauls to [1]\n"
-                 "-t    testing option by default disabled 0 set to 1 to "
-                 "enable\n"
-                 "-p    whether periodic boundaries applies  [0 = false]\n\n");
+                 "-e    number of energy sources [4]\n"
+                 "-E    energy per source [1.0]\n"
+                 "-n    number of iterations [1000]\n"
+                 "-o    output energy stats [0 = disabled, 1 = enabled]\n"
+                 "-t    testing mode [0 = disabled, 1 = enabled]\n"
+                 "-p    periodic boundaries [0 = false, 1 = true]\n"
+                 "-v    verbosity level\n"
+                 "-h    show this help message\n\n");
         halt = 1;
       } break;
 
@@ -330,21 +344,30 @@ initialize(MPI_Comm *Comm, // the communicator
     return SUCCESS;
 
   // ··································································
-  // TODO: Complete checks for meaningful values
+  // Comprehensive input validation
   if ((*S)[_x_] <= 0 || (*S)[_y_] <= 0) {
     if (Me == 0)
-      fprintf(stderr, "Error: grid size must be positive\n");
+      fprintf(stderr, "ERROR: Grid dimensions must be positive, got %d x %d\n",
+              (*S)[_x_], (*S)[_y_]);
     return ERROR_INVALID_GRID_SIZE;
   }
   if (*Nsources < 0) {
     if (Me == 0)
-      fprintf(stderr, "Error: Nsources must be >= 0\n");
+      fprintf(stderr, "ERROR: Number of sources must be >= 0, got %d\n",
+              *Nsources);
     return ERROR_INVALID_NUM_SOURCES;
   }
   if (*Niterations <= 0) {
     if (Me == 0)
-      fprintf(stderr, "Error: Niterations must be > 0\n");
+      fprintf(stderr, "ERROR: Number of iterations must be > 0, got %d\n",
+              *Niterations);
     return ERROR_INVALID_NUM_ITERATIONS;
+  }
+  if (*energy_per_source <= 0.0) {
+    if (Me == 0)
+      fprintf(stderr, "ERROR: Energy per source must be > 0.0, got %f\n",
+              *energy_per_source);
+    return ERROR_INVALID_ENERGY_VALUE;
   }
 
   // ··································································
@@ -487,7 +510,7 @@ initialize(MPI_Comm *Comm, // the communicator
 
   if (ret != 0) {
     if (Me == 0)
-      fprintf(stderr, "Error memory allocation \n");
+      fprintf(stderr, "Rank %d: ERROR - Memory allocation failed\n", Me);
     return ret;
   }
 
@@ -497,7 +520,7 @@ initialize(MPI_Comm *Comm, // the communicator
                            Sources_local, testing);
   if (ret != 0) {
     if (Me == 0)
-      fprintf(stderr, "Error initializing sources\n");
+      fprintf(stderr, "Rank %d: ERROR - Failed to initialize sources\n", Me);
     return ERROR_INITIALIZE_SOURCES;
   }
 

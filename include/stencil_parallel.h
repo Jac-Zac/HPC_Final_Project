@@ -36,7 +36,8 @@ typedef enum {
   ERROR_MEMORY_ALLOCATION = 5,
   ERROR_INITIALIZE_SOURCES = 6,
   ERROR_MPI_FAILURE = 7,
-  ERROR_FILE_DUMPING = 8
+  ERROR_FILE_DUMPING = 8,
+  ERROR_INVALID_ENERGY_VALUE = 9
 } error_code_t;
 
 typedef uint vec2_t[2];
@@ -58,9 +59,8 @@ extern void fill_send_buffers(buffers_t buffers[2], plane_t *);
 // extern void recv_halos(buffers_t *, vec2_t, int *, MPI_Comm *,
 //                        MPI_Status statuses[4]);
 
-extern error_code_t exchange_halos(buffers_t buffers[2], vec2_t size,
-                                   int *neighbours, MPI_Comm *Comm,
-                                   MPI_Status statuses[4]);
+extern int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
+                          MPI_Comm *Comm, MPI_Status statuses[4]);
 
 extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 
@@ -206,8 +206,8 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
 // }
 
 // NOTE: Tmp version to test things out
-error_code_t exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
-                            MPI_Comm *Comm, MPI_Status statuses[4]) {
+int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
+                   MPI_Comm *Comm, MPI_Status statuses[4]) {
   int rc;
 
   rc = MPI_Sendrecv(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
