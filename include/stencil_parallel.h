@@ -1,8 +1,3 @@
-/* -*- Mode: C; c-basic-offset:4 ; indent-tabs-mode:nil ; -*- */
-/*
- * See COPYRIGHT in top-level directory.
- */
-
 #include <getopt.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -81,14 +76,6 @@ int memory_release(plane_t *, buffers_t *);
 int output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 
 extern int dump(const double *data, const uint size[2], const char *filename);
-
-// int dump_global_grid(const plane_t *plane,    // local plane
-//                      const vec2_t local_size, // local patch size
-//                      const vec2_t S,          // global size
-//                      const vec2_t coords,     // rank coordinates in MPI grid
-//                      const vec2_t grid_dims,  // MPI grid dimensions
-//                      MPI_Comm Comm,           // communicator
-//                      const char *filename);
 
 inline void inject_energy(const int periodic, const int Nsources,
                           const vec2_t *Sources, const double energy,

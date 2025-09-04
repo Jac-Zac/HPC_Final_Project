@@ -1,10 +1,3 @@
-/*
- *
- *  my_size_x   :   local x-extension of your patch
- *  my_size_y   :   local y-extension of your patch
- *
- */
-
 #include "stencil_parallel.h"
 
 // ------------------------------------------------------------------
@@ -78,7 +71,7 @@ int main(int argc, char **argv) {
   for (int iter = 0; iter < Niterations; ++iter) {
     double t_comm_start, t_comp_start;
 
-    // MPI_Request reqs[8];
+    MPI_Request reqs[8];
 
     // new energy from sources
     inject_energy(periodic, Nsources_local, Sources_local, energy_per_source,
@@ -220,7 +213,6 @@ int initialize(MPI_Comm *Comm,
                vec2_t *N,     // two-uint array defining the MPI tasks' grid
                int *periodic, // periodic-boundary tag
                int *output_energy_stat,
-
                int *neighbours,  // four-int array that gives back the
                                  // neighbours rank of the calling task
                int *Niterations, // how many iterations
@@ -408,9 +400,9 @@ int initialize(MPI_Comm *Comm,
   if (Grid[_x_] > 1) {
     if (*periodic) {
       neighbours[EAST] = Y * Grid[_x_] + (Me + 1) % Grid[_x_];
-      // NOTE: Old version
-      // neighbours[WEST] = (X % Grid[_x_] > 0 ? Me - 1 : (Y + 1) * Grid[_x_]
-      // - 1);
+      // NOTE: Old version without casting to int
+      // neighbours[WEST] = (X % Grid[_x_] > 0 ? Me - 1 : (Y + 1) * Grid[_x_] -
+      // 1);
       neighbours[WEST] =
           (X % Grid[_x_] > 0 ? (int)(Me - 1) : (int)((Y + 1) * Grid[_x_] - 1));
     }
@@ -494,6 +486,12 @@ int initialize(MPI_Comm *Comm,
   // ··································································
   // allocate the needed memory
   ret = memory_allocate(neighbours, N, buffers, planes);
+
+  if (ret != 0) {
+    if (Me == 0)
+      fprintf(stderr, "Error memory allocation \n");
+    return ret;
+  }
 
   // ··································································
   // heat sources are local to the specific patch (thus to the specific rank)
@@ -653,13 +651,8 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
    */
 
   if (planes_ptr == NULL)
-    // an invalid pointer has been passed
-    // manage the situation
     return ERROR_NULL_POINTER;
-
   if (buffers_ptr == NULL)
-    // an invalid pointer has been passed
-    // manage the situation
     return ERROR_NULL_POINTER;
 
   // ··················································
