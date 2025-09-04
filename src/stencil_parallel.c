@@ -698,10 +698,23 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   // memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
 
   // Initialize memory by touching it correctly
-#pragma omp parallel for schedule(static)
-  for (unsigned int i = 0; i < frame_size; i++) {
-    planes_ptr[OLD].data[i] = 0.0;
-    planes_ptr[NEW].data[i] = 0.0;
+  // #pragma omp parallel for schedule(static)
+  //   for (unsigned int i = 0; i < frame_size; i++) {
+  //     planes_ptr[OLD].data[i] = 0.0;
+  //     planes_ptr[NEW].data[i] = 0.0;
+  //   }
+  //
+  // NOTE: Introduced for consistency
+  const uint f_xsize = planes_ptr->size[_x_] + 2;
+  const uint xsize = planes_ptr->size[_x_];
+  const uint ysize = planes_ptr->size[_y_];
+
+#pragma omp parallel for collapse(2) schedule(static)
+  for (uint j = 0; j < ysize + 2; ++j) {
+    for (uint i = 0; i < xsize + 2; ++i) {
+      planes_ptr[OLD].data[j * f_xsize + i] = 0.0;
+      planes_ptr[NEW].data[j * f_xsize + i] = 0.0;
+    }
   }
 
   // ··················································
