@@ -25,11 +25,6 @@
         (double)myts.tv_sec + (double)myts.tv_nsec * 1e-9;                     \
   })
 
-#define NORTH 0
-#define SOUTH 1
-#define EAST 2
-#define WEST 3
-
 #define SEND 0
 #define RECV 1
 
@@ -41,15 +36,25 @@
 
 typedef unsigned int uint;
 
-// Error codes
-#define ERROR_SUCCESS 0
-#define ERROR_INVALID_GRID_SIZE 1
-#define ERROR_INVALID_NUM_SOURCES 2
-#define ERROR_INVALID_NUM_ITERATIONS 3
-#define ERROR_NULL_POINTER 4
-#define ERROR_MEMORY_ALLOCATION 5
-#define ERROR_INITIALIZE_SOURCES 6
-#define ERROR_MPI_FAILURE 7
+// Direction enum for halo exchanges
+typedef enum {
+    NORTH = 0,
+    SOUTH = 1,
+    EAST = 2,
+    WEST = 3
+} direction_t;
+
+// Error codes enum
+typedef enum {
+    SUCCESS = 0,
+    ERROR_INVALID_GRID_SIZE = 1,
+    ERROR_INVALID_NUM_SOURCES = 2,
+    ERROR_INVALID_NUM_ITERATIONS = 3,
+    ERROR_NULL_POINTER = 4,
+    ERROR_MEMORY_ALLOCATION = 5,
+    ERROR_INITIALIZE_SOURCES = 6,
+    ERROR_MPI_FAILURE = 7
+} error_code_t;
 
 // Stencil coefficients
 #define ALPHA 0.5
@@ -67,13 +72,13 @@ int memory_release(double *, int *);
 extern int inject_energy(const int, const int, const int *, const double,
                          const uint[2], double *);
 
-extern int update_plane(const int, const uint[2], const double *, double *);
+extern void update_plane(const int, const uint[2], const double *, double *);
 
 #ifdef GCC_EXTENSIONS
 typedef double v2df __attribute__((vector_size(2 * sizeof(double))));
 #endif
 
-extern int get_total_energy(const uint[2], const double *, double *);
+extern void get_total_energy(const uint[2], const double *, double *);
 
 // ============================================================
 //
@@ -113,7 +118,7 @@ inline int inject_energy(const int periodic, const int Nsources,
  * NOTE: in parallel, every MPI task will perform the
  *       calculation for its patch
  */
-inline int update_plane(const int periodic, const uint size[2],
+inline void update_plane(const int periodic, const uint size[2],
                         const double *old_points, double *new_points) {
 
   // clang: ISO C++17 does not allow 'register' storage class specifier
@@ -211,15 +216,13 @@ goes below zero energy alpha /= 2; } while (!done);
       row[x_size + 1] = row[1]; // right ghost = left boundary
     }
   }
-
-  return 0;
 }
 
 /*
  * NOTE: this routine a good candidate for openmp
  *       parallelization
  */
-inline int get_total_energy(const uint size[2], const double *plane,
+inline void get_total_energy(const uint size[2], const double *plane,
                             double *energy) {
 
   register const int x_size = size[_x_];
@@ -246,5 +249,4 @@ inline int get_total_energy(const uint size[2], const double *plane,
   }
 
   *energy = (double)totenergy;
-  return 0;
 }

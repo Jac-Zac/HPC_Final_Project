@@ -1,8 +1,5 @@
 #include "stencil_parallel.h"
 
-// ------------------------------------------------------------------
-// ------------------------------------------------------------------
-
 int main(int argc, char **argv) {
   MPI_Comm my_COMM_WORLD;
   int Rank, Ntasks;
@@ -52,7 +49,7 @@ int main(int argc, char **argv) {
     printf("task %d is opting out with termination code %d\n", Rank, ret);
 
     MPI_Finalize();
-    return 0;
+    return SUCCESS;
   }
 
   // Allocate timing arrays for logging
@@ -182,7 +179,7 @@ int main(int argc, char **argv) {
   memory_release(planes, buffers);
 
   MPI_Finalize();
-  return 0;
+  return SUCCESS;
 }
 
 /* ==========================================================================
@@ -204,22 +201,23 @@ int initialize_sources(int, int, MPI_Comm *, uint[2], int, int *, vec2_t **,
 
 int memory_allocate(const int *, const vec2_t *, buffers_t *, plane_t *);
 
-int initialize(MPI_Comm *Comm,
-               int Me,        // the rank of the calling process
-               int Ntasks,    // the total number of MPI ranks
-               int argc,      // the argc from command line
-               char **argv,   // the argv from command line
-               vec2_t *S,     // the size of the plane
-               vec2_t *N,     // two-uint array defining the MPI tasks' grid
-               int *periodic, // periodic-boundary tag
-               int *output_energy_stat,
-               int *neighbours,  // four-int array that gives back the
-                                 // neighbours rank of the calling task
-               int *Niterations, // how many iterations
-               int *Nsources,    // how many heat sources
-               int *Nsources_local, vec2_t **Sources_local,
-               double *energy_per_source, // how much heat per source
-               plane_t *planes, buffers_t *buffers) {
+error_code_t
+initialize(MPI_Comm *Comm, // the communicator
+           int Me,         // the rank of the calling process
+           int Ntasks,     // the total number of MPI ranks
+           int argc,       // the argc from command line
+           char **argv,    // the argv from command line
+           vec2_t *S,      // the size of the plane
+           vec2_t *N,      // two-uint array defining the MPI tasks' grid
+           int *periodic,  // periodic-boundary tag
+           int *output_energy_stat,
+           int *neighbours,  // four-int array that gives back the
+                             // neighbours rank of the calling task
+           int *Niterations, // how many iterations
+           int *Nsources,    // how many heat sources
+           int *Nsources_local, vec2_t **Sources_local,
+           double *energy_per_source, // how much heat per source
+           plane_t *planes, buffers_t *buffers) {
   int halt = 0;
   int ret;
   int verbose = 0;
@@ -329,7 +327,7 @@ int initialize(MPI_Comm *Comm,
   }
 
   if (halt)
-    return 1;
+    return SUCCESS;
 
   // ··································································
   // TODO: Complete checks for meaningful values
@@ -503,7 +501,7 @@ int initialize(MPI_Comm *Comm,
     return ERROR_INITIALIZE_SOURCES;
   }
 
-  return 0;
+  return SUCCESS;
 }
 
 // NOTE: Think of a better factorization which has more square like patches to
@@ -603,7 +601,7 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
 
   free(tasks_with_sources);
 
-  return 0;
+  return SUCCESS;
 }
 
 // NOTE: In the future I have to think carefully about the fact that if I want
@@ -743,11 +741,11 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
 
   // ··················································
 
-  return 0;
+  return SUCCESS;
 }
 
 // Release memory also for the buffers
-int memory_release(plane_t *planes, buffers_t *buffer_ptr) {
+error_code_t memory_release(plane_t *planes, buffers_t *buffer_ptr) {
   if (planes != NULL) {
     if (planes[OLD].data != NULL)
       free(planes[OLD].data);
@@ -774,11 +772,11 @@ int memory_release(plane_t *planes, buffers_t *buffer_ptr) {
     free(buffer_ptr[SEND][EAST]);
   }
 
-  return 0;
+  return SUCCESS;
 }
 
-int output_energy_stat(int step, plane_t *plane, double budget, int Me,
-                       MPI_Comm *Comm) {
+error_code_t output_energy_stat(int step, plane_t *plane, double budget, int Me,
+                                MPI_Comm *Comm) {
   // Set initial energy
   double system_energy = 0;
   double tot_system_energy = 0;
@@ -802,10 +800,11 @@ int output_energy_stat(int step, plane_t *plane, double budget, int Me,
            tot_system_energy / (plane->size[_x_] * plane->size[_y_]));
   }
 
-  return 0;
+  return SUCCESS;
 }
 
-int dump(const double *data, const uint size[2], const char *filename) {
+error_code_t dump(const double *data, const uint size[2],
+                  const char *filename) {
   // Function to dump each rank ptach into a file
   if ((filename != NULL) && (filename[0] != '\0')) {
     FILE *outfile = fopen(filename, "wb");
@@ -825,7 +824,7 @@ int dump(const double *data, const uint size[2], const char *filename) {
     free(array);
 
     fclose(outfile);
-    return 0;
+    return SUCCESS;
   } else
     return ERROR_NULL_POINTER;
 }

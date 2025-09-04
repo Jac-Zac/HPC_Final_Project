@@ -9,11 +9,6 @@
 #include <mpi.h>
 #include <omp.h>
 
-#define NORTH 0
-#define SOUTH 1
-#define EAST 2
-#define WEST 3
-
 #define SEND 0
 #define RECV 1
 
@@ -28,16 +23,21 @@
 
 typedef unsigned int uint;
 
-// Error codes
-#define ERROR_SUCCESS 0
-#define ERROR_INVALID_GRID_SIZE 1
-#define ERROR_INVALID_NUM_SOURCES 2
-#define ERROR_INVALID_NUM_ITERATIONS 3
-#define ERROR_NULL_POINTER 4
-#define ERROR_MEMORY_ALLOCATION 5
-#define ERROR_INITIALIZE_SOURCES 6
-#define ERROR_MPI_FAILURE 7
-#define ERROR_FILE_DUMPING 8
+// Direction enum for halo exchanges
+typedef enum { NORTH = 0, SOUTH = 1, EAST = 2, WEST = 3 } direction_t;
+
+// Error codes enum
+typedef enum {
+  SUCCESS = 0,
+  ERROR_INVALID_GRID_SIZE = 1,
+  ERROR_INVALID_NUM_SOURCES = 2,
+  ERROR_INVALID_NUM_ITERATIONS = 3,
+  ERROR_NULL_POINTER = 4,
+  ERROR_MEMORY_ALLOCATION = 5,
+  ERROR_INITIALIZE_SOURCES = 6,
+  ERROR_MPI_FAILURE = 7,
+  ERROR_FILE_DUMPING = 8
+} error_code_t;
 
 typedef uint vec2_t[2];
 typedef double *restrict buffers_t[4];
@@ -58,24 +58,26 @@ extern void fill_send_buffers(buffers_t buffers[2], plane_t *);
 // extern void recv_halos(buffers_t *, vec2_t, int *, MPI_Comm *,
 //                        MPI_Status statuses[4]);
 
-extern int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
-                          MPI_Comm *Comm, MPI_Status statuses[4]);
+extern error_code_t exchange_halos(buffers_t buffers[2], vec2_t size,
+                                   int *neighbours, MPI_Comm *Comm,
+                                   MPI_Status statuses[4]);
 
 extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 
-extern int update_plane(const int, const vec2_t, const plane_t *, plane_t *);
+extern void update_plane(const int, const vec2_t, const plane_t *, plane_t *);
 
-extern int get_total_energy(plane_t *, double *);
+extern void get_total_energy(plane_t *, double *);
 
-int initialize(MPI_Comm *, int, int, int, char **, vec2_t *, vec2_t *, int *,
-               int *, int *, int *, int *, int *, vec2_t **, double *,
-               plane_t *, buffers_t *);
+error_code_t initialize(MPI_Comm *, int, int, int, char **, vec2_t *, vec2_t *,
+                        int *, int *, int *, int *, int *, int *, vec2_t **,
+                        double *, plane_t *, buffers_t *);
 
-int memory_release(plane_t *, buffers_t *);
+error_code_t memory_release(plane_t *, buffers_t *);
 
-int output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
+error_code_t output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 
-extern int dump(const double *data, const uint size[2], const char *filename);
+extern error_code_t dump(const double *data, const uint size[2],
+                         const char *filename);
 
 inline void inject_energy(const int periodic, const int Nsources,
                           const vec2_t *Sources, const double energy,
@@ -204,8 +206,8 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
 // }
 
 // NOTE: Tmp version to test things out
-int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
-                   MPI_Comm *Comm, MPI_Status statuses[4]) {
+error_code_t exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
+                            MPI_Comm *Comm, MPI_Status statuses[4]) {
   int rc;
 
   rc = MPI_Sendrecv(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
@@ -213,35 +215,35 @@ int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
                     MPI_DOUBLE, neighbours[SOUTH], SOUTH, *Comm, &statuses[0]);
 
   if (rc != MPI_SUCCESS)
-    return rc;
+    return ERROR_MPI_FAILURE;
 
   rc = MPI_Sendrecv(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
                     neighbours[SOUTH], NORTH, buffers[RECV][NORTH], size[_x_],
                     MPI_DOUBLE, neighbours[NORTH], NORTH, *Comm, &statuses[1]);
 
   if (rc != MPI_SUCCESS)
-    return rc;
+    return ERROR_MPI_FAILURE;
 
   rc = MPI_Sendrecv(buffers[SEND][EAST], size[_y_], MPI_DOUBLE,
                     neighbours[EAST], WEST, buffers[RECV][WEST], size[_y_],
                     MPI_DOUBLE, neighbours[WEST], WEST, *Comm, &statuses[2]);
 
   if (rc != MPI_SUCCESS)
-    return rc;
+    return ERROR_MPI_FAILURE;
 
   rc = MPI_Sendrecv(buffers[SEND][WEST], size[_y_], MPI_DOUBLE,
                     neighbours[WEST], EAST, buffers[RECV][EAST], size[_y_],
                     MPI_DOUBLE, neighbours[EAST], EAST, *Comm, &statuses[3]);
 
   if (rc != MPI_SUCCESS)
-    return rc;
+    return ERROR_MPI_FAILURE;
 
-  return MPI_SUCCESS;
+  return SUCCESS;
 }
 
-inline int update_plane(const int periodic,
-                        const vec2_t N, // MPI grid of ranks
-                        const plane_t *oldplane, plane_t *newplane) {
+inline void update_plane(const int periodic,
+                         const vec2_t N, // MPI grid of ranks
+                         const plane_t *oldplane, plane_t *newplane) {
 
   const uint f_xsize = oldplane->size[_x_] + 2;
   const uint xsize = oldplane->size[_x_];
@@ -324,11 +326,9 @@ inline int update_plane(const int periodic,
   //     // check the serial version
   //   }
   // }
-
-  return 0;
 }
 
-inline int get_total_energy(plane_t *plane, double *energy) {
+inline void get_total_energy(plane_t *plane, double *energy) {
 
   register const int x_size = plane->size[_x_];
   register const int y_size = plane->size[_y_];
@@ -352,5 +352,4 @@ inline int get_total_energy(plane_t *plane, double *energy) {
   }
 
   *energy = (double)totenergy;
-  return 0;
 }
