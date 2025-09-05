@@ -15,15 +15,16 @@ EXEC=./stencil_parallel
 # =======================================================
 # Load the required modules for GCC and OpenMPI
 module load openmpi/4.1.6--gcc--12.2.0
-
 # Set the executable name
+module intel-oneapi-vtune/2024.1.0
+
 # EXEC=./stencil_parallel
 EXEC=./stencil_parallel
 
 # =======================================================
 # Set OpenMP environment variables
 # export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
-export OMP_NUM_THREADS=1
+export OMP_NUM_THREADS=8
 export OMP_PLACES=cores
 # export OMP_PROC_BIND=spread
 export OMP_PROC_BIND=close
@@ -32,12 +33,9 @@ export OMP_DISPLAY_AFFINITY=TRUE
 # Set the total number of MPI tasks
 TOTAL_MPI_TASKS=${SLURM_NTASKS}
 
-# Log the layout
-lscpu > cpu_layout_thin.log
-
 # Define the arguments for the executable
 # A medium-sized grid suitable for a single-node run
-ARGS="-x 20000 -y 20000 -n 50 -o 0"
+ARGS="-x 10000 -y 10000 -n 50 -o 0"
 
 # Print run information
 echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
@@ -47,5 +45,5 @@ echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 make MODE=parallel
 
 # Run the code using mpirun
-$EXEC $ARGS > ${OMP_NUM_THREADS}.log
+vtune -collect memory-access $EXEC $ARGS > ${OMP_NUM_THREADS}.log
 make clean
