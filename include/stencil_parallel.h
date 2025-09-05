@@ -56,7 +56,7 @@ extern void fill_send_buffers(buffers_t buffers[2], plane_t *);
 
 extern error_code_t exchange_halos(buffers_t buffers[2], vec2_t size,
                                    int *neighbours, MPI_Comm *Comm,
-                                   MPI_Request requests[8]);
+                                   MPI_Request requests[8], plane_t *plane);
 
 extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 
@@ -147,8 +147,8 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
   const uint size_x = plane->size[_x_];
   const uint stride = size_x + 2;
 
-  // NORTH and SOUTH are already in place thanks to direct MPI_Recv.
-  // We only need to unpack the non-contiguous columns.
+  // NORTH and SOUTH are already in place thanks to direct MPI_Irecv into plane data.
+  // We only need to unpack the non-contiguous EAST/WEST columns.
 
   // Copy WEST halo (from EAST neighbor)
   if (neighbours[WEST] != MPI_PROC_NULL) {
@@ -166,33 +166,76 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
 }
 
 error_code_t exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
-                            MPI_Comm *Comm, MPI_Request requests[8]) {
+                            MPI_Comm *Comm, MPI_Request requests[8], 
+                            plane_t *plane) {
   int rc = MPI_SUCCESS; // Accumulate MPI errors with OR to check all at once
 
   // NOTE: Keep the receive first send after order we would use for blocking
   // version which avoid deadlocks
 
-  // NORTH-SOUTH exchanges, also making an or with the return value for later
-  rc |= MPI_Irecv(buffers[RECV][SOUTH], size[_x_], MPI_DOUBLE,
-                  neighbours[SOUTH], NORTH, *Comm, &requests[0]);
-  rc |= MPI_Isend(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
-                  neighbours[NORTH], NORTH, *Comm, &requests[1]);
+  const uint stride = size[_x_] + 2;
 
-  rc |= MPI_Irecv(buffers[RECV][NORTH], size[_x_], MPI_DOUBLE,
-                  neighbours[NORTH], SOUTH, *Comm, &requests[2]);
-  rc |= MPI_Isend(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
-                  neighbours[SOUTH], SOUTH, *Comm, &requests[3]);
+  // NORTH-SOUTH exchanges - receive directly into plane halo regions
+  // SOUTH halo (bottom row of halo, receive from southern neighbor)
+  double *south_halo = &plane->data[(size[_y_] + 1) * stride + 1];
+  if (neighbours[SOUTH] != MPI_PROC_NULL) {
+    rc |= MPI_Irecv(south_halo, size[_x_], MPI_DOUBLE,
+                    neighbours[SOUTH], NORTH, *Comm, &requests[0]);
+  } else {
+    requests[0] = MPI_REQUEST_NULL;
+  }
+  
+  if (neighbours[NORTH] != MPI_PROC_NULL) {
+    rc |= MPI_Isend(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
+                    neighbours[NORTH], NORTH, *Comm, &requests[1]);
+  } else {
+    requests[1] = MPI_REQUEST_NULL;
+  }
+
+  // NORTH halo (top row of halo, receive from northern neighbor)
+  double *north_halo = &plane->data[0 * stride + 1];
+  if (neighbours[NORTH] != MPI_PROC_NULL) {
+    rc |= MPI_Irecv(north_halo, size[_x_], MPI_DOUBLE,
+                    neighbours[NORTH], SOUTH, *Comm, &requests[2]);
+  } else {
+    requests[2] = MPI_REQUEST_NULL;
+  }
+  
+  if (neighbours[SOUTH] != MPI_PROC_NULL) {
+    rc |= MPI_Isend(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
+                    neighbours[SOUTH], SOUTH, *Comm, &requests[3]);
+  } else {
+    requests[3] = MPI_REQUEST_NULL;
+  }
 
   // EAST-WEST exchanges
-  rc |= MPI_Irecv(buffers[RECV][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
-                  EAST, *Comm, &requests[4]);
-  rc |= MPI_Isend(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
-                  EAST, *Comm, &requests[5]);
+  if (neighbours[WEST] != MPI_PROC_NULL) {
+    rc |= MPI_Irecv(buffers[RECV][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
+                    EAST, *Comm, &requests[4]);
+  } else {
+    requests[4] = MPI_REQUEST_NULL;
+  }
+  
+  if (neighbours[EAST] != MPI_PROC_NULL) {
+    rc |= MPI_Isend(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
+                    EAST, *Comm, &requests[5]);
+  } else {
+    requests[5] = MPI_REQUEST_NULL;
+  }
 
-  rc |= MPI_Irecv(buffers[RECV][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
-                  WEST, *Comm, &requests[6]);
-  rc |= MPI_Isend(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
-                  WEST, *Comm, &requests[7]);
+  if (neighbours[EAST] != MPI_PROC_NULL) {
+    rc |= MPI_Irecv(buffers[RECV][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
+                    WEST, *Comm, &requests[6]);
+  } else {
+    requests[6] = MPI_REQUEST_NULL;
+  }
+  
+  if (neighbours[WEST] != MPI_PROC_NULL) {
+    rc |= MPI_Isend(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
+                    WEST, *Comm, &requests[7]);
+  } else {
+    requests[7] = MPI_REQUEST_NULL;
+  }
 
   // Single check at the end
   if (rc != MPI_SUCCESS) {

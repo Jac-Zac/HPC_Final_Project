@@ -103,7 +103,7 @@ int main(int argc, char **argv) {
     // Send new halos the one that was just computed
 
     error_code_t ret = exchange_halos(buffers, planes[current].size, neighbours,
-                                      &my_COMM_WORLD, requests);
+                                      &my_COMM_WORLD, requests, &planes[current]);
 
     MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
 
@@ -632,6 +632,9 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
 // threads to have a touch first policy perhaps
 int memory_allocate(const int *neighbours, const vec2_t *N,
                     buffers_t *buffers_ptr, plane_t *planes_ptr) {
+  // Mark unused parameters to suppress compiler warnings
+  (void)neighbours;
+  (void)N;
   /*
     here you allocate the memory buffers that you need to
     (i)  hold the results of your computation
