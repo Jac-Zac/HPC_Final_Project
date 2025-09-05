@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
 
   int output_energy_stats;
 
-  // initialize MPI envrionment
+  // initialize MPI environment
   {
     int level_obtained;
 
@@ -572,13 +572,15 @@ uint simple_factorization(uint a, int *nfactors, uint **factors)
   return 0;
 }
 
+#define TESTING_SEED 1337
+
 // NOTE: To review with previous implementation
 int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
                        int Nsources, int *Nsources_local, vec2_t **sources,
                        int testing) {
   // Use deterministic seed when testing for reproducible results
   if (testing != 0) {
-    srand48(1337 ^ Me); // Fixed seed for testing
+    srand48(TESTING_SEED ^ Me); // Fixed seed for testing
   } else {
     srand48(time(NULL) ^ Me);
   }
@@ -630,7 +632,16 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
 // NOTE: In the future I have to think carefully about the fact that if I want
 // to parallelize inside those patches the allocation should be done by the
 // threads to have a touch first policy perhaps
-int memory_allocate(const int *neighbours, const vec2_t *N,
+/**
+ * @brief Allocate memory for computation planes and communication buffers
+ * @param neighbours Array of neighbor MPI ranks (unused in current implementation)
+ * @param N MPI grid dimensions (unused in current implementation)  
+ * @param buffers_ptr Pointer to communication buffers structure
+ * @param planes_ptr Pointer to computation planes structure
+ * @return SUCCESS on success, error code otherwise
+ */
+int memory_allocate(__attribute__((unused)) const int *neighbours, 
+                    __attribute__((unused)) const vec2_t *N,
                     buffers_t *buffers_ptr, plane_t *planes_ptr) {
   /*
     here you allocate the memory buffers that you need to
@@ -767,7 +778,12 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   return SUCCESS;
 }
 
-// Release memory also for the buffers
+/**
+ * @brief Release allocated memory for planes and communication buffers
+ * @param planes Pointer to computation planes
+ * @param buffer_ptr Pointer to communication buffers
+ * @return SUCCESS on successful cleanup
+ */
 error_code_t memory_release(plane_t *planes, buffers_t *buffer_ptr) {
   if (planes != NULL) {
     if (planes[OLD].data != NULL)
