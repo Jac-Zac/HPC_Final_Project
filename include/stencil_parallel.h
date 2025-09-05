@@ -255,44 +255,33 @@ inline void update_plane(const int periodic,
   const double c_center = 0.5;
   const double c_neigh = 0.125; // 1/8
 
-  // Row-parallel, inner loop vectorized by compiler with tiling for cache
-  // optimization
-  const uint TILE_SIZE = 64;
-#pragma omp parallel for schedule(static) collapse(2)
-  for (uint jj = 1; jj <= ysize; jj += TILE_SIZE) {
-    for (uint ii = 1; ii <= xsize; ii += TILE_SIZE) {
-      const uint j_end =
-          (jj + TILE_SIZE - 1) <= ysize ? (jj + TILE_SIZE - 1) : ysize;
-      const uint i_end =
-          (ii + TILE_SIZE - 1) <= xsize ? (ii + TILE_SIZE - 1) : xsize;
-
-      for (uint j = jj; j <= j_end; ++j) {
-        const double *row_above = oldp + (j - 1) * f_xsize;
-        const double *row_center = oldp + j * f_xsize;
-        const double *row_below = oldp + (j + 1) * f_xsize;
-        double *row_new = newp + j * f_xsize;
+// Row-parallel, inner loop vectorized by compiler
+#pragma omp parallel for schedule(static)
+  for (uint j = 1; j <= ysize; ++j) {
+    const double *row_above = oldp + (j - 1) * f_xsize;
+    const double *row_center = oldp + j * f_xsize;
+    const double *row_below = oldp + (j + 1) * f_xsize;
+    double *row_new = newp + j * f_xsize;
 
 #pragma omp simd
-        for (uint i = ii; i <= i_end; ++i) {
+    for (uint i = 1; i <= xsize; ++i) {
 
-          // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even
-          //       if this patch is at some border without periodic conditions;
-          //       in that case it is assumed that the +-1 points are outside
-          //       the plate and always have a value of 0, i.e. they are an
-          //       "infinite sink" of heat
-          //
-          // NOTE: That if here I put an if statement (for example to check the
-          // borders) it is likely that the compiler will not perform
-          // vectorization by himself automatically
-          const double center = row_center[i];
-          const double left = row_center[i - 1];
-          const double right = row_center[i + 1];
-          const double up = row_above[i];
-          const double down = row_below[i];
+      // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even
+      //       if this patch is at some border without periodic conditions;
+      //       in that case it is assumed that the +-1 points are outside the
+      //       plate and always have a value of 0, i.e. they are an
+      //       "infinite sink" of heat
+      //
+      // NOTE: That if here I put an if statement (for example to check the
+      // borders) it is likely that the compiler will not perform
+      // vectorization by himself automatically
+      const double center = row_center[i];
+      const double left = row_center[i - 1];
+      const double right = row_center[i + 1];
+      const double up = row_above[i];
+      const double down = row_below[i];
 
-          row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-        }
-      }
+      row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
     }
   }
 
