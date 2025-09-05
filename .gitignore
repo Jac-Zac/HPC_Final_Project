@@ -8,6 +8,10 @@ AGENTS.md
 **/*.py[cod]
 **/*.ipynb_checkpoints/
 **/*.virtual_documents
+.env/
+.venv/
+env/
+venv/
 
 
 # LaTeX

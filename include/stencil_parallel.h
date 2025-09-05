@@ -75,6 +75,15 @@ error_code_t output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 extern error_code_t dump(const double *data, const uint size[2],
                          const char *filename);
 
+/**
+ * @brief Inject energy from heat sources into the simulation grid
+ * @param periodic Whether to use periodic boundary conditions  
+ * @param Nsources Number of heat sources
+ * @param Sources Array of source positions [Nsources][2]
+ * @param energy Amount of energy to inject per source
+ * @param plane Target computation plane
+ * @param N MPI grid dimensions for periodic boundary handling
+ */
 inline void inject_energy(const int periodic, const int Nsources,
                           const vec2_t *Sources, const double energy,
                           plane_t *plane, const vec2_t N) {
@@ -202,6 +211,15 @@ error_code_t exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
   return SUCCESS;
 }
 
+/**
+ * @brief Perform 5-point stencil update on the grid
+ * Uses coefficients: center=0.5, neighbors=0.125 (1/8 each)
+ * Formula: u_new = 0.5*u_center + 0.125*(u_left + u_right + u_up + u_down)
+ * @param periodic Whether to use periodic boundary conditions
+ * @param N MPI grid dimensions [nx, ny] 
+ * @param oldplane Source data plane (input)
+ * @param newplane Destination data plane (output)
+ */
 inline void update_plane(const int periodic,
                          const vec2_t N, // MPI grid of ranks
                          const plane_t *oldplane, plane_t *newplane) {
@@ -289,6 +307,11 @@ inline void update_plane(const int periodic,
   // }
 }
 
+/**
+ * @brief Calculate total energy in the simulation grid using OpenMP reduction
+ * @param plane Computation plane to analyze
+ * @param energy Pointer to store the computed total energy
+ */
 inline void get_total_energy(plane_t *plane, double *energy) {
 
   register const int x_size = plane->size[_x_];

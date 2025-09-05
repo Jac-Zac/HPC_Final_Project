@@ -112,9 +112,23 @@ int memory_allocate(const uint[2], double **);
 
 int initialize_sources(uint[2], int, int **);
 
+/**
+ * @brief Initialize serial simulation parameters (uses fixed values for testing)
+ * @param argc Command line argument count (unused - serial uses fixed parameters)
+ * @param argv Command line arguments (unused - serial uses fixed parameters) 
+ * @param S Grid dimensions [x, y]
+ * @param periodic Periodic boundary flag
+ * @param Niterations Number of simulation iterations
+ * @param Nsources Number of heat sources
+ * @param Sources Pointer to heat source positions
+ * @param energy_per_source Energy injected per source per iteration
+ * @param planes Computation grid planes
+ * @param output_energy_at_steps Flag to enable energy output
+ * @return 0 on success, error code otherwise
+ */
 int initialize(
-    int argc,         // the argc from command line
-    char **argv,      // the argv from command line
+    __attribute__((unused)) int argc,         // the argc from command line
+    __attribute__((unused)) char **argv,      // the argv from command line
     uint *S,          // two-uint array defining the x,y dimensions of the grid
     int *periodic,    // periodic-boundary tag
     int *Niterations, // how many iterations
@@ -198,7 +212,14 @@ int memory_allocate(const uint size[2], double **planes_ptr)
 /*
  * randomly spread heat sources
  */
-int initialize_sources(uint size[2], int Nsources, int **Sources) {
+/**
+ * @brief Initialize heat source positions for serial simulation  
+ * @param size Grid dimensions (unused - serial uses fixed source positions)
+ * @param Nsources Number of heat sources to create
+ * @param Sources Pointer to array that will hold source positions
+ * @return SUCCESS on successful initialization
+ */
+int initialize_sources(__attribute__((unused)) uint size[2], int Nsources, int **Sources) {
   *Sources = (int *)malloc(Nsources * 2 * sizeof(uint));
 
   // Use fixed source positions matching the Python test
