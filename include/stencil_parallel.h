@@ -54,12 +54,9 @@ extern void inject_energy(const int, const int, const vec2_t *, const double,
 
 extern void fill_send_buffers(buffers_t buffers[2], plane_t *);
 
-// extern void send_halos(buffers_t *, vec2_t, int *, MPI_Comm *);
-// extern void recv_halos(buffers_t *, vec2_t, int *, MPI_Comm *,
-//                        MPI_Status statuses[4]);
-
-extern int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
-                          MPI_Comm *Comm, MPI_Status statuses[4]);
+extern error_code_t exchange_halos(buffers_t buffers[2], vec2_t size,
+                                   int *neighbours, MPI_Comm *Comm,
+                                   MPI_Request requests[8]);
 
 extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 
@@ -168,74 +165,39 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
   }
 }
 
-// extern void send_halos(buffers_t *buffers, vec2_t size, int *neighbours,
-//                        MPI_Comm *Comm) {
-//
-//   // Neighbours tells me which rank to send to and the tag tells what I'm
-//   // sending to which neighbour, thous he will know what it is receiving
-//
-//   // Get num points based on the size of x since those are horizontal
-//   MPI_Send((const void *)buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
-//            neighbours[NORTH], NORTH, *Comm);
-//
-//   MPI_Send((const void *)buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
-//            neighbours[SOUTH], SOUTH, *Comm);
-//
-//   MPI_Send((const void *)buffers[SEND][EAST], size[_y_], MPI_DOUBLE,
-//            neighbours[EAST], EAST, *Comm);
-//   MPI_Send((const void *)buffers[SEND][WEST], size[_y_], MPI_DOUBLE,
-//            neighbours[WEST], WEST, *Comm);
-// }
-//
-// extern void recv_halos(buffers_t *buffers, vec2_t size, int *neighbours,
-//                        MPI_Comm *Comm, MPI_Status statuses[4]) {
-//
-//   // NOTE: When I receive from north I should put it in the
-//   // south since the neighbour is the north neighbour.
-//   MPI_Recv((void *)buffers[RECV][NORTH], size[_x_], MPI_DOUBLE,
-//            neighbours[SOUTH], SOUTH, *Comm, &statuses[0]);
-//   MPI_Recv((void *)buffers[RECV][SOUTH], size[_x_], MPI_DOUBLE,
-//            neighbours[NORTH], NORTH, *Comm, &statuses[1]);
-//   MPI_Recv((void *)buffers[RECV][WEST], size[_y_], MPI_DOUBLE,
-//   neighbours[EAST],
-//            EAST, *Comm, &statuses[2]);
-//   MPI_Recv((void *)buffers[RECV][EAST], size[_y_], MPI_DOUBLE,
-//   neighbours[WEST],
-//            WEST, *Comm, &statuses[3]);
-// }
+error_code_t exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
+                            MPI_Comm *Comm, MPI_Request requests[8]) {
+  int rc = MPI_SUCCESS; // Accumulate MPI errors with OR to check all at once
 
-// NOTE: Tmp version to test things out
-int exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
-                   MPI_Comm *Comm, MPI_Status statuses[4]) {
-  int rc;
+  // NOTE: Keep the receive first send after order we would use for blocking
+  // version which avoid deadlocks
 
-  rc = MPI_Sendrecv(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
-                    neighbours[NORTH], SOUTH, buffers[RECV][SOUTH], size[_x_],
-                    MPI_DOUBLE, neighbours[SOUTH], SOUTH, *Comm, &statuses[0]);
+  // NORTH-SOUTH exchanges, also making an or with the return value for later
+  rc |= MPI_Irecv(buffers[RECV][SOUTH], size[_x_], MPI_DOUBLE,
+                  neighbours[SOUTH], NORTH, *Comm, &requests[0]);
+  rc |= MPI_Isend(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
+                  neighbours[NORTH], NORTH, *Comm, &requests[1]);
 
-  if (rc != MPI_SUCCESS)
+  rc |= MPI_Irecv(buffers[RECV][NORTH], size[_x_], MPI_DOUBLE,
+                  neighbours[NORTH], SOUTH, *Comm, &requests[2]);
+  rc |= MPI_Isend(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
+                  neighbours[SOUTH], SOUTH, *Comm, &requests[3]);
+
+  // EAST-WEST exchanges
+  rc |= MPI_Irecv(buffers[RECV][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
+                  EAST, *Comm, &requests[4]);
+  rc |= MPI_Isend(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
+                  EAST, *Comm, &requests[5]);
+
+  rc |= MPI_Irecv(buffers[RECV][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
+                  WEST, *Comm, &requests[6]);
+  rc |= MPI_Isend(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
+                  WEST, *Comm, &requests[7]);
+
+  // Single check at the end
+  if (rc != MPI_SUCCESS) {
     return ERROR_MPI_FAILURE;
-
-  rc = MPI_Sendrecv(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
-                    neighbours[SOUTH], NORTH, buffers[RECV][NORTH], size[_x_],
-                    MPI_DOUBLE, neighbours[NORTH], NORTH, *Comm, &statuses[1]);
-
-  if (rc != MPI_SUCCESS)
-    return ERROR_MPI_FAILURE;
-
-  rc = MPI_Sendrecv(buffers[SEND][EAST], size[_y_], MPI_DOUBLE,
-                    neighbours[EAST], WEST, buffers[RECV][WEST], size[_y_],
-                    MPI_DOUBLE, neighbours[WEST], WEST, *Comm, &statuses[2]);
-
-  if (rc != MPI_SUCCESS)
-    return ERROR_MPI_FAILURE;
-
-  rc = MPI_Sendrecv(buffers[SEND][WEST], size[_y_], MPI_DOUBLE,
-                    neighbours[WEST], EAST, buffers[RECV][EAST], size[_y_],
-                    MPI_DOUBLE, neighbours[EAST], EAST, *Comm, &statuses[3]);
-
-  if (rc != MPI_SUCCESS)
-    return ERROR_MPI_FAILURE;
+  }
 
   return SUCCESS;
 }

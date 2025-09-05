@@ -1,4 +1,5 @@
 #include "stencil_parallel.h"
+#include "mpi.h"
 
 int main(int argc, char **argv) {
   MPI_Comm my_COMM_WORLD;
@@ -75,7 +76,7 @@ int main(int argc, char **argv) {
   for (int iter = 0; iter < num_iterations; ++iter) {
     double t_comm_start, t_comp_start;
 
-    MPI_Request reqs[8];
+    MPI_Request requests[8];
 
     // new energy from sources
     inject_energy(periodic, num_sources_local, sources_local, energy_per_source,
@@ -100,12 +101,11 @@ int main(int argc, char **argv) {
     //         --> can you overlap communication and companion in this way?
     //
     // Send new halos the one that was just computed
-    //
-    // Initialize array of statuses
-    MPI_Status statuses[4];
 
-    int ret = exchange_halos(buffers, planes[current].size, neighbours,
-                             &my_COMM_WORLD, statuses);
+    error_code_t ret = exchange_halos(buffers, planes[current].size, neighbours,
+                                      &my_COMM_WORLD, requests);
+
+    MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
 
     // Return if unsuccessful
     if (ret != MPI_SUCCESS) {
