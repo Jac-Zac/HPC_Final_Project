@@ -18,8 +18,7 @@
 #define _x_ 0
 #define _y_ 1
 
-// #define MEMORY_ALIGNMENT 64  // 64 bytes = 512 bits alignment for SIMD
-#define MEMORY_ALIGNMENT 32 // 64 bytes = 512 bits alignment for SIMD
+#define MEMORY_ALIGNMENT 64 // 64 bytes = 512 bits alignment for SIMD
 
 typedef unsigned int uint;
 
