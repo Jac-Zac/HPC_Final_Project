@@ -715,7 +715,7 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   const uint xsize = planes_ptr->size[_x_];
   const uint ysize = planes_ptr->size[_y_];
 
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(guided)
   for (uint j = 0; j < ysize + 2; ++j) {
     for (uint i = 0; i < xsize + 2; ++i) {
       planes_ptr[OLD].data[j * f_xsize + i] = 0.0;

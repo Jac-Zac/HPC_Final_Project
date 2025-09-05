@@ -256,7 +256,7 @@ inline void update_plane(const int periodic,
   const double c_neigh = 0.125; // 1/8
 
 // Row-parallel, inner loop vectorized by compiler
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(guided)
   for (uint j = 1; j <= ysize; ++j) {
     const double *row_above = oldp + (j - 1) * f_xsize;
     const double *row_center = oldp + j * f_xsize;
