@@ -17,7 +17,6 @@ AGENTS.md
 
 # Data, text, and intermediate files
 **/*.tsv
-**/*.txt
 **/*.gz
 **/*.zip
 **/*.npz
