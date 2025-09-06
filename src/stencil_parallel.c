@@ -72,6 +72,31 @@ int main(int argc, char **argv) {
   MPI_Barrier(my_COMM_WORLD);
 
   double total_start_time = MPI_Wtime();
+
+  // Define and commit custom MPI datatype
+  // HACK: Datatype allows for more efficient buffering compared to buffers
+  int x_size = planes[OLD].size[_x_];
+  int y_size = planes[OLD].size[_y_];
+  MPI_Datatype north_south_type;
+  MPI_Datatype east_west_type;
+
+  // North-South are continues in memory
+  MPI_Type_contiguous(x_size, MPI_DOUBLE, &north_south_type);
+  // West and East are require stride acces
+  int element_per_block = 1;
+  int stride = x_size + 2;
+  // https: // rookiehpc.org/mpi/docs/mpi_type_vector/index.html
+  MPI_Type_vector(y_size, element_per_block, stride, MPI_DOUBLE,
+                  &east_west_type);
+
+  ret = MPI_Type_commit(&north_south_type);
+  if (ret != MPI_SUCCESS)
+    return ret;
+
+  ret = MPI_Type_commit(&east_west_type);
+  if (ret != MPI_SUCCESS)
+    return ret;
+
   int current = OLD;
   for (int iter = 0; iter < num_iterations; ++iter) {
     double t_comm_start, t_comp_start;
@@ -89,6 +114,8 @@ int main(int argc, char **argv) {
     //
     // Extract current boundary data into send buffers
     //
+#define DATATYPES
+#ifndef DATATYPES
 
     /* --- COMMUNICATION PHASE --- */
     t_comm_start = MPI_Wtime();
@@ -119,7 +146,25 @@ int main(int argc, char **argv) {
     copy_received_halos(buffers, &planes[current], neighbours);
 
     comm_times[iter] = MPI_Wtime() - t_comm_start;
-    /* --------------------------------------  */
+/* --------------------------------------  */
+#else
+    t_comm_start = MPI_Wtime();
+    initialize_send_buffers_datatype(buffers, &planes[current]);
+    error_code_t ret =
+        exchange_halos_datatypes(buffers, neighbours, &my_COMM_WORLD, requests,
+                                 north_south_type, east_west_type);
+
+    MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
+
+    // Return if unsuccessful
+    if (ret != MPI_SUCCESS) {
+      fprintf(stderr, "Rank %d: MPI halo exchange failed with error %d\n", rank,
+              ret);
+      MPI_Abort(my_COMM_WORLD, ret);
+      return ERROR_MPI_FAILURE;
+    }
+    comm_times[iter] = MPI_Wtime() - t_comm_start;
+#endif
 
     /* --- COMPUTATION PHASE --- */
     t_comp_start = MPI_Wtime();
@@ -143,10 +188,10 @@ int main(int argc, char **argv) {
       if (dump_status != 0) {
         fprintf(stderr, "Error in dump_status. Exit with %d\n", dump_status);
       }
-
-      // // swap plane indexes for the new iteration
-      current = !current;
     }
+
+    // swap plane indexes for the new iteration
+    current = !current;
   }
 
   // Synchronize before final timing
@@ -191,6 +236,11 @@ int main(int argc, char **argv) {
     free(comm_times);
   }
   memory_release(planes, buffers);
+
+#ifdef DATATYPES
+  MPI_Type_free(&north_south_type);
+  MPI_Type_free(&east_west_type);
+#endif
 
   MPI_Finalize();
   return SUCCESS;
@@ -777,6 +827,7 @@ error_code_t memory_release(plane_t *planes, buffers_t *buffer_ptr) {
       free(planes[NEW].data);
   }
 
+#ifndef DATATYPES
   // Free only EAST and WEST buffers (NORTH/SOUTH point to plane data)
   // RECV buffers
   if (buffer_ptr[RECV][WEST] != NULL) {
@@ -794,6 +845,7 @@ error_code_t memory_release(plane_t *planes, buffers_t *buffer_ptr) {
   if (buffer_ptr[SEND][EAST] != NULL) {
     free(buffer_ptr[SEND][EAST]);
   }
+#endif
 
   return SUCCESS;
 }
