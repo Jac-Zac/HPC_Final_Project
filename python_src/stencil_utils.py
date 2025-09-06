@@ -95,38 +95,41 @@ def assemble_global_grid_from_patches(
         ranks_per_row = int(math.sqrt(ntasks))
         ranks_per_col = ntasks // ranks_per_row
 
-    patch_size_x = grid_size // ranks_per_row
-    patch_size_y = grid_size // ranks_per_col
+    # Calculate base patch sizes
+    base_patch_size_x = grid_size // ranks_per_row
+    base_patch_size_y = grid_size // ranks_per_col
 
     for rank in range(ntasks):
         filename = f"{prefix}{rank}_plane_{iteration:05d}.bin"
         try:
             # Read the local patch data (interior only, no halos)
             patch_data = np.fromfile(filename, dtype=np.float64)
-            patch = patch_data.reshape((patch_size_y, patch_size_x))
 
-            # Calculate rank coordinates in the MPI grid
+            # Calculate actual patch size for this rank (accounting for remainder)
             rank_x = rank % ranks_per_row
             rank_y = rank // ranks_per_row
 
+            # Apply same logic as C code: first r ranks get extra cell
+            patch_size_x = base_patch_size_x + (1 if rank_x < (grid_size % ranks_per_row) else 0)
+            patch_size_y = base_patch_size_y + (1 if rank_y < (grid_size % ranks_per_col) else 0)
+
+            patch = patch_data.reshape((patch_size_y, patch_size_x))
+
             # Calculate starting position in global grid
-            start_x = rank_x * patch_size_x + 1  # +1 for halo
-            start_y = rank_y * patch_size_y + 1  # +1 for halo
+            start_x = 1  # +1 for halo
+            start_y = 1  # +1 for halo
 
-            # Handle extra cells for uneven division
-            extra_x = (
-                rank_x
-                if rank_x < (grid_size % ranks_per_row)
-                else (grid_size % ranks_per_row)
-            )
-            extra_y = (
-                rank_y
-                if rank_y < (grid_size % ranks_per_col)
-                else (grid_size % ranks_per_col)
-            )
+            # Add up all previous ranks' sizes
+            for prev_rank in range(rank):
+                prev_rank_x = prev_rank % ranks_per_row
+                prev_rank_y = prev_rank // ranks_per_row
+                prev_size_x = base_patch_size_x + (1 if prev_rank_x < (grid_size % ranks_per_row) else 0)
+                prev_size_y = base_patch_size_y + (1 if prev_rank_y < (grid_size % ranks_per_col) else 0)
 
-            start_x += extra_x
-            start_y += extra_y
+                if prev_rank_x == rank_x:
+                    start_y += prev_size_y
+                if prev_rank_y == rank_y:
+                    start_x += prev_size_x
 
             # Copy interior data to global grid (no halos in patch data)
             for j in range(patch_size_y):
@@ -138,6 +141,9 @@ def assemble_global_grid_from_patches(
 
         except FileNotFoundError:
             print(f"Warning: Could not find {filename}")
+            continue
+        except Exception as e:
+            print(f"Warning: Error processing {filename}: {e}")
             continue
 
     return global_grid

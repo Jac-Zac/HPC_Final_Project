@@ -36,7 +36,7 @@ try:
 
     # Load all iterations
     frames = []
-    max_iterations = 400  # Animation length
+    max_iterations = 250  # Animation length
 
     for i in range(max_iterations):
         try:
