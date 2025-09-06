@@ -93,13 +93,13 @@ inline void inject_energy(const int periodic, const int num_sources,
       // propagate the boundaries if needed
       // check the serial version
       //
-      // if (x == 1)
-      //   plane->data[IDX(N[_x_] + 1, y)] += energy;
+      if (x == 1)
+        plane->data[IDX(N[_x_] + 1, y)] += energy;
       if ((N[_x_] == 1)) {
         plane->data[IDX(0, y)] += energy;
       }
-      // if (y == 1)
-      //   plane->data[IDX(x, N[_y_] + 1)] += energy;
+      if (y == 1)
+        plane->data[IDX(x, N[_y_] + 1)] += energy;
       if ((N[_y_] == 1)) {
         plane->data[IDX(x, 0)] += energy;
       }
