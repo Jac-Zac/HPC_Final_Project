@@ -37,28 +37,22 @@
 typedef unsigned int uint;
 
 // Direction enum for halo exchanges
-typedef enum {
-    NORTH = 0,
-    SOUTH = 1,
-    EAST = 2,
-    WEST = 3
-} direction_t;
+typedef enum { NORTH = 0, SOUTH = 1, EAST = 2, WEST = 3 } direction_t;
 
 // Error codes enum
 typedef enum {
-    SUCCESS = 0,
-    ERROR_INVALID_GRID_SIZE = 1,
-    ERROR_INVALID_NUM_SOURCES = 2,
-    ERROR_INVALID_NUM_ITERATIONS = 3,
-    ERROR_NULL_POINTER = 4,
-    ERROR_MEMORY_ALLOCATION = 5,
-    ERROR_INITIALIZE_SOURCES = 6,
-    ERROR_MPI_FAILURE = 7
+  SUCCESS = 0,
+  ERROR_INVALID_GRID_SIZE = 1,
+  ERROR_INVALID_NUM_SOURCES = 2,
+  ERROR_INVALID_NUM_ITERATIONS = 3,
+  ERROR_NULL_POINTER = 4,
+  ERROR_MEMORY_ALLOCATION = 5,
+  ERROR_INITIALIZE_SOURCES = 6,
+  ERROR_MPI_FAILURE = 7
 } error_code_t;
 
 // Stencil coefficients
 #define ALPHA 0.5
-#define BETA 0.125
 
 // ============================================================
 //
@@ -74,34 +68,30 @@ extern int inject_energy(const int, const int, const int *, const double,
 
 extern void update_plane(const int, const uint[2], const double *, double *);
 
-#ifdef GCC_EXTENSIONS
-typedef double v2df __attribute__((vector_size(2 * sizeof(double))));
-#endif
-
 extern void get_total_energy(const uint[2], const double *, double *);
 
 // ============================================================
 //
 // function definition for inline functions
 
-inline int inject_energy(const int periodic, const int Nsources,
-                         const int *Sources, const double energy,
-                         const uint mysize[2], double *plane) {
-#define IDX(i, j) ((j) * (mysize[_x_] + 2) + (i))
-  for (int s = 0; s < Nsources; s++) {
+inline int inject_energy(const int periodic, const int num_sources,
+                         const int *sources, const double energy,
+                         const uint my_size[2], double *plane) {
+#define IDX(i, j) ((j) * (my_size[_x_] + 2) + (i))
+  for (int s = 0; s < num_sources; s++) {
 
-    uint x = Sources[2 * s];
-    uint y = Sources[2 * s + 1];
+    uint x = sources[2 * s];
+    uint y = sources[2 * s + 1];
     plane[IDX(x, y)] += energy;
 
     if (periodic) {
       if (x == 1)
-        plane[IDX(mysize[_x_] + 1, y)] += energy;
-      if (x == mysize[_x_])
+        plane[IDX(my_size[_x_] + 1, y)] += energy;
+      if (x == my_size[_x_])
         plane[IDX(0, y)] += energy;
       if (y == 1)
-        plane[IDX(x, mysize[_y_] + 1)] += energy;
-      if (y == mysize[_y_])
+        plane[IDX(x, my_size[_y_] + 1)] += energy;
+      if (y == my_size[_y_])
         plane[IDX(x, 0)] += energy;
     }
   }
@@ -119,7 +109,7 @@ inline int inject_energy(const int periodic, const int Nsources,
  *       calculation for its patch
  */
 inline void update_plane(const int periodic, const uint size[2],
-                        const double *old_points, double *new_points) {
+                         const double *old_points, double *new_points) {
 
   // clang: ISO C++17 does not allow 'register' storage class specifier
   const int f_xsize = size[_x_] + 2;
@@ -223,15 +213,15 @@ goes below zero energy alpha /= 2; } while (!done);
  *       parallelization
  */
 inline void get_total_energy(const uint size[2], const double *plane,
-                            double *energy) {
+                             double *energy) {
 
   register const int x_size = size[_x_];
   register const int y_size = size[_y_];
 
 #if defined(LONG_ACCURACY)
-  long double totenergy = 0;
+  long double tot_energy = 0;
 #else
-  double totenergy = 0;
+  double tot_energy = 0;
 #endif
 
 // HACK :Review this code snippet
@@ -239,14 +229,14 @@ inline void get_total_energy(const uint size[2], const double *plane,
 //       (i)  manually unroll the loop
 //       (ii) ask the compiler to do it
 // for instance
-#pragma omp parallel for reduction(+ : totenergy)
+#pragma omp parallel for reduction(+ : tot_energy)
   for (uint j = 1; j <= y_size; ++j) {
     const double *row = plane + j * (size[_x_] + 2);
     // Automatically hints the compiler to do simd reduction here
-#pragma omp simd reduction(+ : totenergy)
+#pragma omp simd reduction(+ : tot_energy)
     for (uint i = 1; i <= x_size; ++i)
-      totenergy += row[i];
+      tot_energy += row[i];
   }
 
-  *energy = (double)totenergy;
+  *energy = (double)tot_energy;
 }

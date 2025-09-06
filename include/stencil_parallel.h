@@ -52,8 +52,17 @@ typedef struct {
 extern void inject_energy(const int, const int, const vec2_t *, const double,
                           plane_t *, const vec2_t);
 
+extern void update_plane(const int, const vec2_t, const plane_t *, plane_t *);
+
+extern void get_total_energy(plane_t *, double *);
+
 extern void fill_send_buffers(buffers_t buffers[2], plane_t *);
 extern void initialize_send_buffers_datatype(buffers_t buffers[2], plane_t *);
+
+extern error_code_t initialize(MPI_Comm *, int, int, int, char **, vec2_t *,
+                               vec2_t *, int *, int *, int *, int *, int *,
+                               int *, vec2_t **, double *, plane_t *,
+                               buffers_t *);
 
 extern error_code_t exchange_halos(buffers_t buffers[2], vec2_t size,
                                    int *neighbours, MPI_Comm *Comm,
@@ -67,14 +76,6 @@ extern error_code_t exchange_halos_datatypes(buffers_t buffers[2],
 
 extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
 
-extern void update_plane(const int, const vec2_t, const plane_t *, plane_t *);
-
-extern void get_total_energy(plane_t *, double *);
-
-error_code_t initialize(MPI_Comm *, int, int, int, char **, vec2_t *, vec2_t *,
-                        int *, int *, int *, int *, int *, int *, vec2_t **,
-                        double *, plane_t *, buffers_t *);
-
 error_code_t memory_release(plane_t *, buffers_t *);
 
 error_code_t output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
@@ -82,28 +83,31 @@ error_code_t output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 extern error_code_t dump(const double *data, const uint size[2],
                          const char *filename);
 
-inline void inject_energy(const int periodic, const int Nsources,
-                          const vec2_t *Sources, const double energy,
+inline void inject_energy(const int periodic, const int num_sources,
+                          const vec2_t *sources, const double energy,
                           plane_t *plane, const vec2_t N) {
   register const uint size_x = plane->size[_x_] + 2;
-
   double *restrict data = plane->data;
 
 #define IDX(i, j) ((j) * size_x + (i))
-  for (int s = 0; s < Nsources; s++) {
-    int x = Sources[s][_x_];
-    int y = Sources[s][_y_];
+  for (int s = 0; s < num_sources; s++) {
+    int x = sources[s][_x_];
+    int y = sources[s][_y_];
 
     data[IDX(x, y)] += energy;
 
     if (periodic) {
-      if (x == 1)
-        plane->data[IDX(N[_x_] + 1, y)] += energy;
+      // NOTE: To conclude check
+      // propagate the boundaries if needed
+      // check the serial version
+      //
+      // if (x == 1)
+      //   plane->data[IDX(N[_x_] + 1, y)] += energy;
       if ((N[_x_] == 1)) {
         plane->data[IDX(0, y)] += energy;
       }
-      if (y == 1)
-        plane->data[IDX(x, N[_y_] + 1)] += energy;
+      // if (y == 1)
+      //   plane->data[IDX(x, N[_y_] + 1)] += energy;
       if ((N[_y_] == 1)) {
         plane->data[IDX(x, 0)] += energy;
       }
@@ -150,8 +154,9 @@ void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
 
 inline void initialize_send_buffers_datatype(buffers_t buffers[2],
                                              plane_t *plane) {
-  // Sets SEND buffers to point to internal plane data and RECV buffers to halo locations
-  // for direct MPI datatype-based communication (avoids buffer copies)
+  // Sets SEND buffers to point to internal plane data and RECV buffers to halo
+  // locations for direct MPI datatype-based communication (avoids buffer
+  // copies)
   const uint size_x = plane->size[_x_];
   const uint size_y = plane->size[_y_];
   const uint stride = size_x + 2;
@@ -284,8 +289,8 @@ inline void update_plane(const int periodic,
                          const plane_t *oldplane, plane_t *newplane) {
 
   const uint f_xsize = oldplane->size[_x_] + 2;
-  const uint xsize = oldplane->size[_x_];
-  const uint ysize = oldplane->size[_y_];
+  const uint x_size = oldplane->size[_x_];
+  const uint y_size = oldplane->size[_y_];
 
   double *restrict newp = newplane->data;
   const double *restrict oldp = oldplane->data;
@@ -296,14 +301,14 @@ inline void update_plane(const int periodic,
 
 // Row-parallel, inner loop vectorized by compiler
 #pragma omp parallel for schedule(static)
-  for (uint j = 1; j <= ysize; ++j) {
+  for (uint j = 1; j <= y_size; ++j) {
     const double *row_above = oldp + (j - 1) * f_xsize;
     const double *row_center = oldp + j * f_xsize;
     const double *row_below = oldp + (j + 1) * f_xsize;
     double *row_new = newp + j * f_xsize;
 
 #pragma omp simd
-    for (uint i = 1; i <= xsize; ++i) {
+    for (uint i = 1; i <= x_size; ++i) {
 
       // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even
       //       if this patch is at some border without periodic conditions;
@@ -329,20 +334,20 @@ inline void update_plane(const int periodic,
   if (periodic) {
     // If only one rank along X, wrap left/right ghosts locally
     if (N[_x_] == 1) {
-      for (uint j = 1; j <= ysize; ++j) {
+      for (uint j = 1; j <= y_size; ++j) {
         double *row = newp + j * f_xsize;
-        row[0] = row[xsize];     // left ghost  <= right edge
-        row[xsize + 1] = row[1]; // right ghost <= left  edge
+        row[0] = row[x_size];     // left ghost  <= right edge
+        row[x_size + 1] = row[1]; // right ghost <= left  edge
       }
     }
     // If only one rank along Y, wrap top/bottom ghosts locally
     if (N[_y_] == 1) {
       double *row_top = newp + 1 * f_xsize;
-      double *row_bottom = newp + ysize * f_xsize;
+      double *row_bottom = newp + y_size * f_xsize;
       double *row_topghost = newp + 0 * f_xsize;
-      double *row_bottomghost = newp + (ysize + 1) * f_xsize;
+      double *row_bottomghost = newp + (y_size + 1) * f_xsize;
 
-      for (uint i = 1; i <= xsize; ++i) {
+      for (uint i = 1; i <= x_size; ++i) {
         row_topghost[i] = row_bottom[i];
         row_bottomghost[i] = row_top[i];
       }
@@ -375,19 +380,19 @@ inline void get_total_energy(plane_t *plane, double *energy) {
   double *restrict data = plane->data;
 
 #if defined(LONG_ACCURACY)
-  long double totenergy = 0;
+  long double tot_energy = 0;
 #else
-  double totenergy = 0;
+  double tot_energy = 0;
 #endif
 
-#pragma omp parallel for reduction(+ : totenergy)
+#pragma omp parallel for reduction(+ : tot_energy)
   for (uint j = 1; j <= y_size; ++j) {
     const double *row = data + j * f_size;
     // Automatically hints the compiler to do simd reduction here
-#pragma omp simd reduction(+ : totenergy)
+#pragma omp simd reduction(+ : tot_energy)
     for (uint i = 1; i <= x_size; ++i)
-      totenergy += row[i];
+      tot_energy += row[i];
   }
 
-  *energy = (double)totenergy;
+  *energy = (double)tot_energy;
 }
