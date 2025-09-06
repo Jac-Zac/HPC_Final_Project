@@ -1,6 +1,8 @@
 #include "stencil_parallel.h"
 #include "mpi.h"
 
+#define TESTING_SEED 1337
+
 int main(int argc, char **argv) {
   MPI_Comm my_COMM_WORLD;
   int rank, num_tasks;
@@ -20,7 +22,7 @@ int main(int argc, char **argv) {
 
   int output_energy_stats;
 
-  // initialize MPI envrionment
+  // initialize MPI environment
   {
     int level_obtained;
 
@@ -622,13 +624,25 @@ uint simple_factorization(uint a, int *nfactors, uint **factors)
   return 0;
 }
 
+/**
+ * @brief Initialize heat sources for parallel simulation with proper load balancing
+ * @param Me Current MPI rank 
+ * @param Ntasks Total number of MPI tasks
+ * @param Comm MPI communicator for broadcasting source information
+ * @param mysize Local grid dimensions for this rank
+ * @param Nsources Total number of heat sources to distribute
+ * @param Nsources_local Output: Number of sources assigned to this rank
+ * @param sources Output: Array of source coordinates local to this rank
+ * @param testing Use deterministic random seed for reproducible testing
+ * @return SUCCESS on successful initialization, error code otherwise
+ */
 // NOTE: To review with previous implementation
 int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
                        int Nsources, int *Nsources_local, vec2_t **sources,
                        int testing) {
   // Use deterministic seed when testing for reproducible results
   if (testing != 0) {
-    srand48(1337 ^ Me); // Fixed seed for testing
+    srand48(TESTING_SEED ^ Me); // Fixed seed for testing
   } else {
     srand48(time(NULL) ^ Me);
   }
@@ -677,10 +691,21 @@ int initialize_sources(int Me, int Ntasks, MPI_Comm *Comm, vec2_t mysize,
   return SUCCESS;
 }
 
+/**
+ * @brief Allocate memory for computation planes and communication buffers
+ * Allocates SIMD-aligned memory for optimal performance and sets up halo communication buffers.
+ * Uses posix_memalign for 64-byte alignment to enable vectorization.
+ * @param neighbours Array of neighbor MPI ranks (unused in current implementation)
+ * @param N MPI grid dimensions (unused in current implementation)  
+ * @param buffers_ptr Pointer to communication buffers structure
+ * @param planes_ptr Pointer to computation planes structure
+ * @return SUCCESS on success, error code otherwise
+ */
 // NOTE: In the future I have to think carefully about the fact that if I want
 // to parallelize inside those patches the allocation should be done by the
 // threads to have a touch first policy perhaps
-int memory_allocate(const int *neighbours, const vec2_t *N,
+int memory_allocate(__attribute__((unused)) const int *neighbours, 
+                    __attribute__((unused)) const vec2_t *N,
                     buffers_t *buffers_ptr, plane_t *planes_ptr) {
   /*
     here you allocate the memory buffers that you need to
@@ -817,8 +842,14 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   return SUCCESS;
 }
 
+/**
+ * @brief Release allocated memory for planes and communication buffers
+ * @param planes Pointer to computation planes
+ * @param buffer_ptr Pointer to communication buffers (unused - buffers are statically allocated)
+ * @return SUCCESS on successful cleanup
+ */
 // Release memory also for the buffers
-error_code_t memory_release(plane_t *planes, buffers_t *buffer_ptr) {
+error_code_t memory_release(plane_t *planes, __attribute__((unused)) buffers_t *buffer_ptr) {
   if (planes != NULL) {
     if (planes[OLD].data != NULL)
       free(planes[OLD].data);
