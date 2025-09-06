@@ -63,11 +63,10 @@ extern error_code_t initialize(MPI_Comm *, int, int, int, char **, vec2_t *,
                                int *, vec2_t **, double *, plane_t *,
                                buffers_t *);
 
-extern error_code_t exchange_halos_datatypes(buffers_t buffers[2],
-                                             int *neighbours, MPI_Comm *Comm,
-                                             MPI_Request requests[8],
-                                             MPI_Datatype north_south_type,
-                                             MPI_Datatype east_west_type);
+extern error_code_t exchange_halos(buffers_t buffers[2], int *neighbours,
+                                   MPI_Comm *Comm, MPI_Request requests[8],
+                                   MPI_Datatype north_south_type,
+                                   MPI_Datatype east_west_type);
 
 error_code_t memory_release(plane_t *, MPI_Datatype *, MPI_Datatype *);
 
@@ -139,11 +138,10 @@ inline void initialize_send_buffers_datatype(buffers_t buffers[2],
   buffers[RECV][EAST] = &plane->data[stride + size_x + 1];
 }
 
-extern error_code_t exchange_halos_datatypes(buffers_t buffers[2],
-                                             int *neighbours, MPI_Comm *Comm,
-                                             MPI_Request requests[8],
-                                             MPI_Datatype north_south_type,
-                                             MPI_Datatype east_west_type) {
+extern error_code_t exchange_halos(buffers_t buffers[2], int *neighbours,
+                                   MPI_Comm *Comm, MPI_Request requests[8],
+                                   MPI_Datatype north_south_type,
+                                   MPI_Datatype east_west_type) {
   int rc = MPI_SUCCESS; // Accumulate MPI errors with OR to check all at once
 
   // NORTH-SOUTH exchanges, also making an or with the return value for later

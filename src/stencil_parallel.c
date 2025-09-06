@@ -113,8 +113,8 @@ int main(int argc, char **argv) {
     t_comm_start = MPI_Wtime();
     initialize_send_buffers_datatype(buffers, &planes[current]);
     error_code_t ret =
-        exchange_halos_datatypes(buffers, neighbours, &my_COMM_WORLD, requests,
-                                 north_south_type, east_west_type);
+        exchange_halos(buffers, neighbours, &my_COMM_WORLD, requests,
+                       north_south_type, east_west_type);
 
     MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
 
