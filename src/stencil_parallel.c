@@ -8,7 +8,7 @@ int main(int argc, char **argv) {
 
   int num_iterations;
   int periodic;
-  vec2_t global_grid_size, mpi_grid_dims;
+  vec2_t global_grid_size, mpi_tasks_grid;
 
   int num_sources;
   int num_sources_local;
@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
   // argument checking and setting
   int ret =
       initialize(&my_COMM_WORLD, rank, num_tasks, argc, argv, &global_grid_size,
-                 &mpi_grid_dims, &periodic, &output_energy_stats, neighbours,
+                 &mpi_tasks_grid, &periodic, &output_energy_stats, neighbours,
                  &num_iterations, &num_sources, &num_sources_local,
                  &sources_local, &energy_per_source, &planes[0], &buffers[0]);
 
@@ -105,49 +105,11 @@ int main(int argc, char **argv) {
 
     // new energy from sources
     inject_energy(periodic, num_sources_local, sources_local, energy_per_source,
-                  &planes[current], mpi_grid_dims);
+                  &planes[current], mpi_tasks_grid);
 
     /* --------------------------------------------------------------------- */
 
-    // [A] fill the buffers, and/or make the buffers' pointers pointing to the
-    // correct position
-    //
-    // Extract current boundary data into send buffers
-    //
-#define DATATYPES
-#ifndef DATATYPES
-
     /* --- COMMUNICATION PHASE --- */
-    t_comm_start = MPI_Wtime();
-    // Pass periodic and neighbouur if they are null pass nothing
-    fill_send_buffers(buffers, &planes[current]);
-
-    // [B] perform the halo communications
-    //     (1) use Send / Recv
-    //     (2) use Isend / Irecv
-    //         --> can you overlap communication and companion in this way?
-    //
-    // Send new halos the one that was just computed
-
-    error_code_t ret = exchange_halos(buffers, planes[current].size, neighbours,
-                                      &my_COMM_WORLD, requests);
-
-    MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
-
-    // Return if unsuccessful
-    if (ret != MPI_SUCCESS) {
-      fprintf(stderr, "Rank %d: MPI halo exchange failed with error %d\n", rank,
-              ret);
-      MPI_Abort(my_COMM_WORLD, ret);
-      return ERROR_MPI_FAILURE;
-    }
-
-    // [C] copy the haloes data
-    copy_received_halos(buffers, &planes[current], neighbours);
-
-    comm_times[iter] = MPI_Wtime() - t_comm_start;
-/* --------------------------------------  */
-#else
     t_comm_start = MPI_Wtime();
     initialize_send_buffers_datatype(buffers, &planes[current]);
     error_code_t ret =
@@ -164,17 +126,17 @@ int main(int argc, char **argv) {
       return ERROR_MPI_FAILURE;
     }
     comm_times[iter] = MPI_Wtime() - t_comm_start;
-#endif
+    /* --------------------------------------  */
 
     /* --- COMPUTATION PHASE --- */
     t_comp_start = MPI_Wtime();
 
     // update grid points
-    update_plane(periodic, mpi_grid_dims, &planes[current], &planes[!current]);
+    update_plane(periodic, mpi_tasks_grid, &planes[current], &planes[!current]);
 
     comp_times[iter] = MPI_Wtime() - t_comp_start;
-
     /* ------------------------- */
+
     // output if needed
     if (output_energy_stats) {
       output_energy_stat(iter, &planes[!current],
@@ -235,12 +197,7 @@ int main(int argc, char **argv) {
   if (comm_times != NULL) {
     free(comm_times);
   }
-  memory_release(planes, buffers);
-
-#ifdef DATATYPES
-  MPI_Type_free(&north_south_type);
-  MPI_Type_free(&east_west_type);
-#endif
+  memory_release(planes, &north_south_type, &east_west_type);
 
   MPI_Finalize();
   return SUCCESS;
@@ -263,17 +220,17 @@ uint simple_factorization(uint, int *, uint **);
 int initialize_sources(int, int, MPI_Comm *, uint[2], int, int *, vec2_t **,
                        int);
 
-int memory_allocate(const int *, const vec2_t *, buffers_t *, plane_t *);
+int memory_allocate(const int *, const vec2_t *, plane_t *);
 
 error_code_t initialize(
-    MPI_Comm *Comm,          // the communicator
-    int Me,                  // the rank of the calling process
-    int num_tasks,           // the total number of MPI ranks
-    int argc,                // the argc from command line
-    char **argv,             // the argv from command line
-    vec2_t *plane_size,      // the size of the plane
-    vec2_t *local_grid_size, // two-uint array defining the MPI tasks' grid
-    int *periodic,           // periodic-boundary tag
+    MPI_Comm *Comm,         // the communicator
+    int Me,                 // the rank of the calling process
+    int num_tasks,          // the total number of MPI ranks
+    int argc,               // the argc from command line
+    char **argv,            // the argv from command line
+    vec2_t *plane_size,     // the size of the plane
+    vec2_t *mpi_tasks_grid, // two-uint array defining the MPI tasks' grid
+    int *periodic,          // periodic-boundary tag
     int *output_energy_stat,
     int *neighbours,     // four-int array that gives back the
                          // neighbours rank of the calling task
@@ -459,8 +416,8 @@ error_code_t initialize(
       grid[_x_] = first, grid[_y_] = num_tasks / first;
   }
 
-  (*local_grid_size)[_x_] = grid[_x_];
-  (*local_grid_size)[_y_] = grid[_y_];
+  (*mpi_tasks_grid)[_x_] = grid[_x_];
+  (*mpi_tasks_grid)[_y_] = grid[_y_];
 
   // ··································································
   // my coordinates in the grid of processors based on my rank
@@ -557,7 +514,7 @@ error_code_t initialize(
 
   // ··································································
   // allocate the needed memory
-  ret = memory_allocate(neighbours, local_grid_size, buffers, planes);
+  ret = memory_allocate(neighbours, mpi_tasks_grid, planes);
 
   if (ret != 0) {
     if (Me == 0)
@@ -682,7 +639,7 @@ int initialize_sources(int Me, int num_tasks, MPI_Comm *Comm, vec2_t my_size,
 // to parallelize inside those patches the allocation should be done by the
 // threads to have a touch first policy perhaps
 int memory_allocate(const int *neighbours, const vec2_t *N,
-                    buffers_t *buffers_ptr, plane_t *planes_ptr) {
+                    plane_t *planes_ptr) {
   /*
     here you allocate the memory buffers that you need to
     (i)  hold the results of your computation
@@ -723,8 +680,6 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
    */
 
   if (planes_ptr == NULL)
-    return ERROR_NULL_POINTER;
-  if (buffers_ptr == NULL)
     return ERROR_NULL_POINTER;
 
   // ··················································
@@ -785,12 +740,13 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   // you may just make some pointers pointing to the
   // correct positions
   // TODO: Complete the following code
-  uint size_x = planes_ptr[OLD].size[_x_];
-  uint size_y = planes_ptr[OLD].size[_y_];
+  // uint size_x = planes_ptr[OLD].size[_x_];
+  // uint size_y = planes_ptr[OLD].size[_y_];
 
   // +1 to skip the halo since we want the actual data I believe
-  buffers_ptr[SEND][NORTH] = &planes_ptr[OLD].data[1 * (size_x + 2) + 1];
-  buffers_ptr[SEND][SOUTH] = &planes_ptr[OLD].data[size_y * (size_x + 2) + 1];
+  // buffers_ptr[SEND][NORTH] = &planes_ptr[OLD].data[1 * (size_x + 2) + 1];
+  // buffers_ptr[SEND][SOUTH] = &planes_ptr[OLD].data[size_y * (size_x + 2) +
+  // 1];
 
   // NOTE: The rest of the buffers so the RECV for north and south are set to
   // NULL before so no need to do it here
@@ -803,15 +759,15 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   // ··················································
   // allocate buffers
   // Both send and rexieve for west and east
-  buffers_ptr[SEND][WEST] =
-      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
-  buffers_ptr[RECV][WEST] =
-      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
-
-  buffers_ptr[SEND][EAST] =
-      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
-  buffers_ptr[RECV][EAST] =
-      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  // buffers_ptr[SEND][WEST] =
+  //     (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  // buffers_ptr[RECV][WEST] =
+  //     (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  //
+  // buffers_ptr[SEND][EAST] =
+  //     (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  // buffers_ptr[RECV][EAST] =
+  //     (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
 
   // ··················································
 
@@ -819,7 +775,8 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
 }
 
 // Release memory also for the buffers
-error_code_t memory_release(plane_t *planes_ptr, buffers_t *buffer_ptr) {
+error_code_t memory_release(plane_t *planes_ptr, MPI_Datatype *north_south_type,
+                            MPI_Datatype *east_west_type) {
   if (planes_ptr != NULL) {
     if (planes_ptr[OLD].data != NULL)
       free(planes_ptr[OLD].data);
@@ -828,25 +785,8 @@ error_code_t memory_release(plane_t *planes_ptr, buffers_t *buffer_ptr) {
       free(planes_ptr[NEW].data);
   }
 
-#ifndef DATATYPES
-  // Free only EAST and WEST buffers (NORTH/SOUTH point to plane data)
-  // RECV buffers
-  if (buffer_ptr[RECV][WEST] != NULL) {
-    free(buffer_ptr[RECV][WEST]);
-  }
-
-  if (buffer_ptr[RECV][EAST] != NULL) {
-    free(buffer_ptr[RECV][EAST]);
-  }
-
-  // SEND buffers
-  if (buffer_ptr[SEND][WEST] != NULL) {
-    free(buffer_ptr[SEND][WEST]);
-  }
-  if (buffer_ptr[SEND][EAST] != NULL) {
-    free(buffer_ptr[SEND][EAST]);
-  }
-#endif
+  MPI_Type_free(north_south_type);
+  MPI_Type_free(east_west_type);
 
   return SUCCESS;
 }

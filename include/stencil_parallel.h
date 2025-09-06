@@ -56,7 +56,6 @@ extern void update_plane(const int, const vec2_t, const plane_t *, plane_t *);
 
 extern void get_total_energy(plane_t *, double *);
 
-extern void fill_send_buffers(buffers_t buffers[2], plane_t *);
 extern void initialize_send_buffers_datatype(buffers_t buffers[2], plane_t *);
 
 extern error_code_t initialize(MPI_Comm *, int, int, int, char **, vec2_t *,
@@ -64,19 +63,13 @@ extern error_code_t initialize(MPI_Comm *, int, int, int, char **, vec2_t *,
                                int *, vec2_t **, double *, plane_t *,
                                buffers_t *);
 
-extern error_code_t exchange_halos(buffers_t buffers[2], vec2_t size,
-                                   int *neighbours, MPI_Comm *Comm,
-                                   MPI_Request requests[8]);
-
 extern error_code_t exchange_halos_datatypes(buffers_t buffers[2],
                                              int *neighbours, MPI_Comm *Comm,
                                              MPI_Request requests[8],
                                              MPI_Datatype north_south_type,
                                              MPI_Datatype east_west_type);
 
-extern void copy_received_halos(buffers_t buffers[2], plane_t *, int *);
-
-error_code_t memory_release(plane_t *, buffers_t *);
+error_code_t memory_release(plane_t *, MPI_Datatype *, MPI_Datatype *);
 
 error_code_t output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 
@@ -116,42 +109,6 @@ inline void inject_energy(const int periodic, const int num_sources,
 #undef IDX
 }
 
-void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
-  const uint size_x = plane->size[_x_];
-  const uint size_y = plane->size[_y_];
-  const uint stride = size_x + 2;
-
-  // NOTE: For north and south we can copy continues memory directly starting
-  // from the correct location
-
-  // Starting from the internal row so I have to move by 1 stride + 1
-  // Fill NORTH send buffer (top internal row, j=1)
-  memcpy(buffers[SEND][NORTH], &plane->data[1 * stride + 1],
-         size_x * sizeof(double));
-
-  // Fill SOUTH send buffer (bottom internal row, j=size_y)
-  memcpy(buffers[SEND][SOUTH], &plane->data[size_y * stride + 1],
-         size_x * sizeof(double));
-
-  // ghost row 0
-  buffers[RECV][NORTH] = &plane->data[0 * stride + 1];
-  // ghost row sy+1
-  buffers[RECV][SOUTH] = &plane->data[(size_y + 1) * stride + 1];
-
-  // NOTE: Perhaps here I should do it by thread so that they touch first the
-  // memory location
-  //
-  // Fill WEST send buffer (leftmost internal column, i=1)
-  for (uint j = 0; j < size_y; j++) {
-    buffers[SEND][WEST][j] = plane->data[(j + 1) * stride + 1];
-  }
-
-  // Fill EAST send buffer (rightmost internal column, i=size_x)
-  for (uint j = 0; j < size_y; j++) {
-    buffers[SEND][EAST][j] = plane->data[(j + 1) * stride + size_x];
-  }
-}
-
 inline void initialize_send_buffers_datatype(buffers_t buffers[2],
                                              plane_t *plane) {
   // Sets SEND buffers to point to internal plane data and RECV buffers to halo
@@ -180,67 +137,6 @@ inline void initialize_send_buffers_datatype(buffers_t buffers[2],
   buffers[RECV][WEST] = &plane->data[stride];
   // ghost row at east (halo element)
   buffers[RECV][EAST] = &plane->data[stride + size_x + 1];
-}
-
-void copy_received_halos(buffers_t buffers[2], plane_t *plane,
-                         int *neighbours) {
-  const uint size_y = plane->size[_y_];
-  const uint size_x = plane->size[_x_];
-  const uint stride = size_x + 2;
-
-  // NORTH and SOUTH are already in place thanks to direct MPI_Recv.
-  // We only need to unpack the non-contiguous columns.
-
-  // Copy WEST halo (from EAST neighbor)
-  if (neighbours[WEST] != MPI_PROC_NULL) {
-    for (uint j = 0; j < size_y; j++) {
-      plane->data[(j + 1) * stride + 0] = buffers[RECV][WEST][j];
-    }
-  }
-
-  // Copy EAST halo (from WEST neighbor)
-  if (neighbours[EAST] != MPI_PROC_NULL) {
-    for (uint j = 0; j < size_y; j++) {
-      plane->data[(j + 1) * stride + size_x + 1] = buffers[RECV][EAST][j];
-    }
-  }
-}
-
-error_code_t exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
-                            MPI_Comm *Comm, MPI_Request requests[8]) {
-  int rc = MPI_SUCCESS; // Accumulate MPI errors with OR to check all at once
-
-  // NOTE: Keep the receive first send after order we would use for blocking
-  // version which avoid deadlocks
-
-  // NORTH-SOUTH exchanges, also making an or with the return value for later
-  rc |= MPI_Irecv(buffers[RECV][SOUTH], size[_x_], MPI_DOUBLE,
-                  neighbours[SOUTH], NORTH, *Comm, &requests[0]);
-  rc |= MPI_Isend(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
-                  neighbours[NORTH], NORTH, *Comm, &requests[1]);
-
-  rc |= MPI_Irecv(buffers[RECV][NORTH], size[_x_], MPI_DOUBLE,
-                  neighbours[NORTH], SOUTH, *Comm, &requests[2]);
-  rc |= MPI_Isend(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
-                  neighbours[SOUTH], SOUTH, *Comm, &requests[3]);
-
-  // EAST-WEST exchanges
-  rc |= MPI_Irecv(buffers[RECV][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
-                  EAST, *Comm, &requests[4]);
-  rc |= MPI_Isend(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
-                  EAST, *Comm, &requests[5]);
-
-  rc |= MPI_Irecv(buffers[RECV][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
-                  WEST, *Comm, &requests[6]);
-  rc |= MPI_Isend(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
-                  WEST, *Comm, &requests[7]);
-
-  // Single check at the end
-  if (rc != MPI_SUCCESS) {
-    return ERROR_MPI_FAILURE;
-  }
-
-  return SUCCESS;
 }
 
 extern error_code_t exchange_halos_datatypes(buffers_t buffers[2],
