@@ -150,6 +150,8 @@ void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
 
 inline void initialize_send_buffers_datatype(buffers_t buffers[2],
                                              plane_t *plane) {
+  // Sets SEND buffers to point to internal plane data and RECV buffers to halo locations
+  // for direct MPI datatype-based communication (avoids buffer copies)
   const uint size_x = plane->size[_x_];
   const uint size_y = plane->size[_y_];
   const uint stride = size_x + 2;
