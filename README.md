@@ -20,13 +20,14 @@ A 2D heat-stencil simulation with serial and parallel (MPI+OpenMP) implementatio
 .
 ├── include/               # Header files
 ├── src/                   # Source code (stencil_serial.c, stencil_parallel.c)
-├── tests/                 # Python tests and reference implementation
-│   ├── test_stencil.py    # Comprehensive test suite
-│   └── stencil_reference.py # Python reference implementation
-├── python_plotting/       # Performance analysis and plotting scripts
-│   ├── generate_visualizations.py # Visualization generation script
-│   ├── plot_strong_scaling.py     # Main plotting script
-│   └── stencil_utils.py           # Shared utilities for grid assembly & viz
+├── python_src/            # Python implementation and testing
+│   ├── testing/           # Comprehensive test suite
+│   │   └── test_stencil.py    # Point-by-point validation tests
+│   ├── stencil_reference.py # Python reference implementation  
+│   └── plotting/          # Performance analysis and plotting scripts
+│       ├── generate_visualizations.py # Visualization generation script
+│       ├── plot_strong_scaling.py     # Main plotting script
+│       └── stencil_utils.py           # Shared utilities for grid assembly & viz
 ├── slurm_files/           # HPC job scripts for Cineca and Orfeo
 ├── results/               # Output results directory
 ├── Makefile               # Build system
@@ -182,7 +183,7 @@ Features NUMA-aware rankfile generation for optimal performance.
 make test
 
 # Python tests only (activate virtual environment first)
-source .env/bin/activate && pytest -v tests/
+source .env/bin/activate && pytest -v python_src/testing/
 
 # Manual testing
 ./stencil_serial          # Serial version

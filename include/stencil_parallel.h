@@ -39,6 +39,10 @@ typedef enum {
   ERROR_INVALID_ENERGY_VALUE = 9
 } error_code_t;
 
+// Stencil coefficients for heat diffusion
+#define STENCIL_CENTER 0.5
+#define STENCIL_NEIGHBOR 0.125  // 1/8
+
 typedef uint vec2_t[2];
 typedef double *restrict buffers_t[4];
 // NOTE: Added a more specific definition
@@ -291,8 +295,8 @@ inline void update_plane(const int periodic,
   const double *restrict oldp = oldplane->data;
 
   // Use defined stencil coefficients
-  const double c_center = 0.5;
-  const double c_neigh = 0.125; // 1/8
+  const double c_center = STENCIL_CENTER;
+  const double c_neigh = STENCIL_NEIGHBOR; // 1/8
 
 // Row-parallel, inner loop vectorized by compiler
 #pragma omp parallel for schedule(static)
