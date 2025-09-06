@@ -54,6 +54,7 @@ visualize:
 	mpirun -np 4 ./stencil_parallel -x 100 -y 100 -n 250 -o 1 -t 1 -e 10 -p 1
 	@echo "Generating visualizations..."
 	. .env/bin/activate && python3 python_src/plotting/generate_visualizations.py
+	$(MAKE) clean
 
 # Clean built executables
 clean:
