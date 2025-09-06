@@ -117,6 +117,11 @@ inline void initialize_send_buffers_datatype(buffers_t buffers[2],
   const uint size_y = plane->size[_y_];
   const uint stride = size_x + 2;
 
+  // +1 to skip the halo since we want the actual data I believe
+  // buffers_ptr[SEND][NORTH] = &planes_ptr[OLD].data[1 * (size_x + 2) + 1];
+  // buffers_ptr[SEND][SOUTH] = &planes_ptr[OLD].data[size_y * (size_x + 2) +
+  // 1];
+
   // Starting from the internal row so I have to move by 1 stride + 1
   // NORTH send buffer points to the first element of the top internal row
   buffers[SEND][NORTH] = &plane->data[stride + 1];

@@ -378,14 +378,13 @@ error_code_t initialize(
   }
 
   // ··································································
-  /*
-   * find a suitable domain decomposition
-   * very simple algorithm, you may want to
-   * substitute it with a better one
-   *
-   * the plane Sx x Sy will be solved with a grid
-   * of Nx x Ny MPI tasks
-   */
+  //
+  // find a suitable domain decomposition
+  // very simple algorithm, you may want to
+  // substitute it with a better one
+  //
+  // the plane Sx x Sy will be solved with a grid
+  // of Nx x Ny MPI tasks
 
   vec2_t grid;
   double formfactor = ((*plane_size)[_x_] >= (*plane_size)[_y_]
@@ -535,8 +534,9 @@ error_code_t initialize(
   return SUCCESS;
 }
 
-// NOTE: Think of a better factorization which has more square like patches to
-// have better cache locality for OpenMP threads computations
+// NOTE: This factorization could be leaved to MPI Cartesian Topology but that
+// is not really the first optimization to be made considering scalability
+// problem with openmp
 //
 // Think of using a Cartesian decomposition Topology-aware decomposition: With
 // the correct topology:
@@ -640,45 +640,6 @@ int initialize_sources(int Me, int num_tasks, MPI_Comm *Comm, vec2_t my_size,
 // threads to have a touch first policy perhaps
 int memory_allocate(const int *neighbours, const vec2_t *N,
                     plane_t *planes_ptr) {
-  /*
-    here you allocate the memory buffers that you need to
-    (i)  hold the results of your computation
-    (ii) communicate with your neighbours
-
-    The memory layout that I propose to you is as follows:
-
-    (i) --- calculations
-    you need 2 memory regions: the "OLD" one that contains the
-    results for the step (i-1)th, and the "NEW" one that will contain
-    the updated results from the step ith.
-
-    Then, the "NEW" will be treated as "OLD" and viceversa.
-
-    These two memory regions are indexed by *plate_ptr:
-
-    planew_ptr[0] ==> the "OLD" region
-    plamew_ptr[1] ==> the "NEW" region
-
-
-    (ii) --- communications
-
-    You may need two buffers (one for sending and one for receiving)
-    for each one of your neighbours, that are at most 4:
-    north, south, east and west.
-
-    To them you need to communicate at most my_size_x or my_size_y
-    double data.
-
-    These buffers are indexed by the buffer_ptr pointer so
-    that
-
-    (*buffers_ptr)[SEND][ {NORTH,...,WEST} ] = .. some memory regions
-    (*buffers_ptr)[RECV][ {NORTH,...,WEST} ] = .. some memory regions
-
-    --->> Of course you can change this layout as you prefer
-
-   */
-
   if (planes_ptr == NULL)
     return ERROR_NULL_POINTER;
 
@@ -690,6 +651,8 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
       (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
 
   // HACK: Testing memory alignment to get aligned SIMD instructions
+  // Dones't seem to work for some reason on my linux machine (vmovupd)
+  // To analyze further in conjunction with update_plane
   if (posix_memalign((void **)&planes_ptr[OLD].data, MEMORY_ALIGNMENT,
                      frame_size * sizeof(double)) != 0) {
     return ERROR_MEMORY_ALLOCATION;
@@ -701,7 +664,7 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
     return ERROR_MEMORY_ALLOCATION;
   }
 
-  // OLD: Standard malloc allocation (commented out but preserved)
+  // FIX: Standard malloc allocation (commented out but preserved)
   // planes_ptr[OLD].data = (double *)malloc(frame_size * sizeof(double));
   // if (planes_ptr[OLD].data == NULL)
   //   // manage the malloc fail
@@ -730,46 +693,20 @@ int memory_allocate(const int *neighbours, const vec2_t *N,
   }
 
   // ··················································
+  // NOTE: In this case I will use MPI_Datatype directly for strided data
   // NOTE: This comment is done by the professor
+  //
   // buffers for north and south communication
   // are not really needed
-  //
   // in fact, they are already contiguous, just the
   // first and last line of every rank's plane
   //
   // you may just make some pointers pointing to the
   // correct positions
   // TODO: Complete the following code
-  // uint size_x = planes_ptr[OLD].size[_x_];
-  // uint size_y = planes_ptr[OLD].size[_y_];
-
-  // +1 to skip the halo since we want the actual data I believe
-  // buffers_ptr[SEND][NORTH] = &planes_ptr[OLD].data[1 * (size_x + 2) + 1];
-  // buffers_ptr[SEND][SOUTH] = &planes_ptr[OLD].data[size_y * (size_x + 2) +
-  // 1];
 
   // NOTE: The rest of the buffers so the RECV for north and south are set to
   // NULL before so no need to do it here
-
-  // NOTE: Do not do this ! I think it is not optimal !
-  //
-  // or, if you prefer, just go on and allocate buffers
-  // also for north and south communications
-
-  // ··················································
-  // allocate buffers
-  // Both send and rexieve for west and east
-  // buffers_ptr[SEND][WEST] =
-  //     (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
-  // buffers_ptr[RECV][WEST] =
-  //     (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
-  //
-  // buffers_ptr[SEND][EAST] =
-  //     (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
-  // buffers_ptr[RECV][EAST] =
-  //     (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
-
-  // ··················································
 
   return SUCCESS;
 }
