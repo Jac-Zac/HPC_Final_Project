@@ -38,8 +38,7 @@ $(BASENAME):
 test:
 	$(MAKE) clean
 	$(MAKE) all
-	mkdir -p data_logging
-	. .env/bin/activate && pytest -v python_src/testing
+	mkdir -p data_logging && pytest -v python_src/testing
 	$(MAKE) clean
 
 run:
