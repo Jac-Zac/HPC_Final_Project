@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y openmpi-bin openmpi-doc libopenmpi-dev gcc make python3 python3-pip
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Build parallel version
+      run: make MODE=parallel
+
+    - name: Run tests
+      run: make test
+
+    - name: Build serial version
+      run: make MODE=serial
+
+    - name: Test serial version
+      run: |
+        ./stencil_serial -x 50 -y 50 -n 10 -o 1

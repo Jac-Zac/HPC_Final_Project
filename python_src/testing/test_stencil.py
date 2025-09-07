@@ -25,6 +25,7 @@ def validate_entire_grid_pointwise(ntasks=4, grid_size=100, periodic=0, iteratio
     # 1. Run C parallel simulation with testing mode
     cmd = [
         "mpirun",
+        "--oversubscribe",
         "-np",
         str(ntasks),
         "./stencil_parallel",
