@@ -221,7 +221,7 @@ uint simple_factorization(uint, int *, uint **);
 int initialize_sources(int, int, MPI_Comm *, uint[2], int, int *, vec2_t **,
                        int);
 
-int memory_allocate(const int *, const vec2_t *, plane_t *);
+int memory_allocate(plane_t *);
 
 error_code_t initialize(
     MPI_Comm *Comm,         // the communicator
@@ -424,9 +424,6 @@ error_code_t initialize(
   if (grid[_x_] > 1) {
     if (*periodic) {
       neighbours[EAST] = Y * grid[_x_] + (Me + 1) % grid[_x_];
-      // NOTE: Old version without casting to int
-      // neighbours[WEST] = (X % Grid[_x_] > 0 ? Me - 1 : (Y + 1) * Grid[_x_] -
-      // 1);
       neighbours[WEST] =
           (X % grid[_x_] > 0 ? (int)(Me - 1) : (int)((Y + 1) * grid[_x_] - 1));
     }
@@ -444,11 +441,6 @@ error_code_t initialize(
     }
 
     else {
-      // NOTE: Old version
-      // neighbours[NORTH] = (Y > 0 ? Me - Grid[_x_] : MPI_PROC_NULL);
-      // neighbours[SOUTH] = (Y < Grid[_y_] - 1 ? Me + Grid[_x_] :
-      // MPI_PROC_NULL);
-      //
       neighbours[NORTH] = (Y > 0 ? (int)(Me - grid[_x_]) : MPI_PROC_NULL);
       neighbours[SOUTH] =
           (Y < grid[_y_] - 1 ? (int)(Me + grid[_x_]) : MPI_PROC_NULL);
@@ -509,7 +501,7 @@ error_code_t initialize(
 
   // ··································································
   // allocate the needed memory
-  ret = memory_allocate(neighbours, mpi_tasks_grid, planes);
+  ret = memory_allocate(planes);
 
   if (ret != 0) {
     if (Me == 0)
@@ -576,16 +568,19 @@ uint simple_factorization(uint a, int *n_factorss, uint **factors)
   return 0;
 }
 
-// NOTE: To review with previous implementation
 int initialize_sources(int Me, int num_tasks, MPI_Comm *Comm, vec2_t my_size,
                        int num_sources, int *num_local_sources,
                        vec2_t **sources, int testing) {
+  // HACK: To remove
   // Use deterministic seed when testing for reproducible results
-  if (testing != 0) {
-    srand48(1337 ^ Me); // Fixed seed for testing
-  } else {
-    srand48(time(NULL) ^ Me);
-  }
+  // if (testing != 0) {
+  //   srand48(1337 ^ Me); // Fixed seed for testing
+  // } else {
+  //   srand48(time(NULL) ^ Me);
+  // }
+
+  srand48(time(NULL) ^ Me);
+
   int *tasks_with_sources = (int *)malloc(num_sources * sizeof(int));
 
   if (Me == 0) {
@@ -634,8 +629,7 @@ int initialize_sources(int Me, int num_tasks, MPI_Comm *Comm, vec2_t my_size,
 // NOTE: In the future I have to think carefully about the fact that if I want
 // to parallelize inside those patches the allocation should be done by the
 // threads to have a touch first policy perhaps
-int memory_allocate(const int *neighbours, const vec2_t *N,
-                    plane_t *planes_ptr) {
+int memory_allocate(plane_t *planes_ptr) {
   if (planes_ptr == NULL)
     return ERROR_NULL_POINTER;
 

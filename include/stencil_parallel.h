@@ -74,44 +74,39 @@ extern error_code_t dump(const double *data, const uint size[2],
 
 inline void inject_energy(const int periodic, const int num_sources,
                           const vec2_t *sources, const double energy,
-                          plane_t *plane, const vec2_t N) {
+                          plane_t *plane, const vec2_t mpi_tasks_grid) {
   register const uint size_x = plane->size[_x_] + 2;
   double *restrict data = plane->data;
 
 #define IDX(i, j) ((j) * size_x + (i))
   for (int s = 0; s < num_sources; s++) {
-    int x = sources[s][_x_]; // Local x coordinate (1-based, within
-                             // computational domain)
-    int y = sources[s][_y_]; // Local y coordinate (1-based, within
-                             // computational domain)
+    // Local x and y coordinate
+    uint x = sources[s][_x_];
+    uint y = sources[s][_y_];
 
     // Add energy to the source location
     data[IDX(x, y)] += energy;
 
-    // Periodic boundary propagation for sources at domain edges
-    // When a source is at the edge, energy must also be added to the opposite
-    // side
     if (periodic) {
-      // NOTE: To conclude check
-      // propagate the boundaries if needed
-      // check the serial version
+      // HACK: I need to review this
 
-      // If source is at left edge (x == 1), add to right edge
-      if (x == 1)
-        plane->data[IDX(N[_x_] + 1, y)] += energy;
-
-      // Special case: single rank in X, wrap to left halo
-      if (N[_x_] == 1) {
-        plane->data[IDX(0, y)] += energy;
+      if (mpi_tasks_grid[_x_] == 1) {
+        if (x == 1) {
+          data[IDX(plane->size[_x_] + 1, y)] += energy;
+        }
+        if (x == plane->size[_x_]) {
+          data[IDX(0, y)] += energy;
+        }
       }
 
-      // If source is at top edge (y == 1), add to bottom edge
-      if (y == 1)
-        plane->data[IDX(x, N[_y_] + 1)] += energy;
+      if (mpi_tasks_grid[_y_] == 1) {
+        if (y == 1) {
+          data[IDX(x, plane->size[_y_] + 1)] += energy;
+        }
 
-      // Special case: single rank in Y, wrap to top halo
-      if (N[_y_] == 1) {
-        plane->data[IDX(x, 0)] += energy;
+        if (y == plane->size[_y_]) {
+          data[IDX(x, 0)] += energy;
+        }
       }
     }
   }
@@ -219,10 +214,6 @@ inline void update_plane(const int periodic,
       //       in that case it is assumed that the +-1 points are outside the
       //       plate and always have a value of 0, i.e. they are an
       //       "infinite sink" of heat
-      //
-      // NOTE: That if here I put an if statement (for example to check the
-      // borders) it is likely that the compiler will not perform
-      // vectorization by himself automatically
       const double center = row_center[i];
       const double left = row_center[i - 1];
       const double right = row_center[i + 1];
@@ -243,41 +234,36 @@ inline void update_plane(const int periodic,
     if (N[_x_] == 1) {
       for (uint j = 1; j <= y_size; ++j) {
         double *row = new_p + j * f_xsize;
-        row[0] = row[x_size];     // left ghost = right edge
-        row[x_size + 1] = row[1]; // right ghost = left edge
+        row[0] = row[x_size];
+        row[x_size + 1] = row[1];
       }
     }
     // Special case: single rank along Y dimension
     // Wrap top/bottom edges to simulate periodic boundaries
     if (N[_y_] == 1) {
-      double *row_top = new_p + 1 * f_xsize;         // first computational row
-      double *row_bottom = new_p + y_size * f_xsize; // last computational row
-      double *row_topghost = new_p + 0 * f_xsize;    // top halo row
-      double *row_bottomghost =
-          new_p + (y_size + 1) * f_xsize; // bottom halo row
+      double *row_top = new_p + 1 * f_xsize;
+      double *row_bottom = new_p + y_size * f_xsize;
+      double *row_topghost = new_p + 0 * f_xsize;
+      double *row_bottomghost = new_p + (y_size + 1) * f_xsize;
 
       for (uint i = 1; i <= x_size; ++i) {
-        row_topghost[i] = row_bottom[i]; // top ghost = bottom edge
-        row_bottomghost[i] = row_top[i]; // bottom ghost = top edge
+        row_topghost[i] = row_bottom[i];
+        row_bottomghost[i] = row_top[i];
       }
     }
   }
-
-  // // TODO: Check if here I can simply take the code from the serial version
-  // // Perhaps I need to adjust things to work for the patches, though each
-  // // plane will have the corresponding size which helps identify and are
-  // // different for different ranks if I understood correctly
-  // if (periodic) {
-  //   if (N[_x_] == 1) {
-  //     // propagate the boundaries as needed
-  //     // check the serial version
+  // NOTE: Serial version
+  // if (periodic)
+  //   {
+  //     for (int i = 1; i <= xsize; i++) {
+  //       new_point[i] = new_point[IDX(i, ysize)];
+  //       new_point[IDX(i, ysize + 1)] = new_point[i];
+  //     }
+  //     for (int j = 1; j <= ysize; j++) {
+  //       new_point[IDX(0, j)] = new_point[IDX(xsize, j)];
+  //       new_point[IDX(xsize + 1, j)] = new_point[IDX(1, j)];
+  //     }
   //   }
-  //
-  //   if (N[_y_] == 1) {
-  //     // propagate the boundaries as needed
-  //     // check the serial version
-  //   }
-  // }
 }
 
 inline void get_total_energy(plane_t *plane, double *energy) {
