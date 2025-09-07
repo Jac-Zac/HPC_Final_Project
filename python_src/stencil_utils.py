@@ -9,11 +9,63 @@ import re
 import numpy as np
 
 
+def _calculate_mpi_task_grid(num_tasks, grid_size_x, grid_size_y):
+    """
+    Calculate MPI task grid dimensions matching the C code's algorithm.
+
+    This implements the same logic as the C initialize() function for domain decomposition.
+    """
+    # Calculate formfactor (aspect ratio)
+    formfactor = (grid_size_x / grid_size_y) if grid_size_x >= grid_size_y else (grid_size_y / grid_size_x)
+    dimensions = 2 - (num_tasks <= (int(formfactor) + 1))
+
+    if dimensions == 1:
+        if grid_size_x >= grid_size_y:
+            return num_tasks, 1
+        else:
+            return 1, num_tasks
+    else:
+        # Use prime factorization to find optimal decomposition
+        factors = _simple_factorization(num_tasks)
+
+        # Find the best factorization based on formfactor
+        first = 1
+        for factor in factors:
+            if (num_tasks / (first * first)) > formfactor:
+                first *= factor
+            else:
+                break
+
+        if grid_size_x > grid_size_y:
+            return num_tasks // first, first
+        else:
+            return first, num_tasks // first
+
+
+def _simple_factorization(a):
+    """
+    Simple factorization function matching the C code.
+
+    Returns list of prime factors in ascending order.
+    """
+    factors = []
+    f = 2
+    _a_ = a
+
+    while f < a:
+        while _a_ % f == 0:
+            factors.append(f)
+            _a_ //= f
+        f += 1
+
+    return factors
+
+
 def load_sources_from_logs(log_dir="data_logging", ntasks=4, grid_size=100):
     """Load all sources from data_logging/sources_rank*.txt files and convert to global coordinates."""
     sources = []
 
-    # Determine decomposition based on ntasks
+    # Determine decomposition based on ntasks - matching C code logic
     if ntasks == 1:
         ranks_per_row = 1
         ranks_per_col = 1
@@ -24,9 +76,8 @@ def load_sources_from_logs(log_dir="data_logging", ntasks=4, grid_size=100):
         ranks_per_row = 2
         ranks_per_col = 2
     else:
-        import math
-        ranks_per_row = int(math.sqrt(ntasks))
-        ranks_per_col = ntasks // ranks_per_row
+        # Match the C code's sophisticated decomposition algorithm
+        ranks_per_row, ranks_per_col = _calculate_mpi_task_grid(ntasks, grid_size, grid_size)
 
     # Calculate patch sizes (same logic as C code)
     patch_size_x = grid_size // ranks_per_row
@@ -79,7 +130,7 @@ def assemble_global_grid_from_patches(
     """Assemble global grid from individual rank patches for testing."""
     global_grid = np.zeros((grid_size + 2, grid_size + 2))
 
-    # Determine decomposition based on ntasks
+    # Determine decomposition based on ntasks - matching C code logic
     if ntasks == 1:
         ranks_per_row = 1
         ranks_per_col = 1
@@ -90,10 +141,8 @@ def assemble_global_grid_from_patches(
         ranks_per_row = 2
         ranks_per_col = 2
     else:
-        # For other numbers, try to find a reasonable decomposition
-        import math
-        ranks_per_row = int(math.sqrt(ntasks))
-        ranks_per_col = ntasks // ranks_per_row
+        # Match the C code's sophisticated decomposition algorithm
+        ranks_per_row, ranks_per_col = _calculate_mpi_task_grid(ntasks, grid_size, grid_size)
 
     # Calculate base patch sizes
     base_patch_size_x = grid_size // ranks_per_row
@@ -151,17 +200,23 @@ def assemble_global_grid_from_patches(
 
 def extract_energies_from_bins(prefix="plane_global_", nx=100, ny=100):
     """Read all iteration files and return total energies like C would print."""
+
+    def get_iteration_number(filename):
+        """Extract iteration number from filename, return 0 if not found."""
+        match = re.search(r"(\d+)", filename)
+        return int(match.group(1)) if match else 0
+
     if prefix == "plane_":
         # For serial files, exclude global files
         files = sorted(
             [f for f in glob.glob(f"{prefix}*.bin") if "global" not in f],
-            key=lambda x: int(re.search(r"(\d+)", x).group(1)) if re.search(r"(\d+)", x) else 0,
+            key=get_iteration_number,
         )
     else:
         # For global files, use normal pattern
         files = sorted(
             glob.glob(f"{prefix}*.bin"),
-            key=lambda x: int(re.search(r"(\d+)", x).group(1)) if re.search(r"(\d+)", x) else 0,
+            key=get_iteration_number,
         )
     energies = []
     for f in files:

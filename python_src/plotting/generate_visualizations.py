@@ -4,6 +4,7 @@ Generate visualizations and animations from simulation data.
 Used by the Makefile 'visualize' target.
 """
 
+import argparse
 import os
 import sys
 
@@ -17,81 +18,114 @@ matplotlib.use("Agg")  # Use non-interactive backend
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 
-print("Generating visualizations...")
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate visualizations and animations from simulation data",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python generate_visualizations.py                    # Use default values (4 tasks, 100x100 grid)
+  python generate_visualizations.py --ntasks 8        # Generate for 8 MPI tasks
+  python generate_visualizations.py --grid-size 200   # Use 200x200 grid
+  python generate_visualizations.py --ntasks 8 --grid-size 200
+        """,
+    )
 
-# Parameters
-ntasks = 4
-grid_size = 100
+    parser.add_argument(
+        "--ntasks",
+        type=int,
+        default=4,
+        help="Number of MPI tasks (default: 4)"
+    )
+    parser.add_argument(
+        "--grid-size",
+        type=int,
+        default=100,
+        help="Size of the simulation grid (default: 100)"
+    )
 
-# Load sources with correct coordinate transformation
-sources = load_sources_from_logs("data_logging", ntasks=ntasks, grid_size=grid_size)
-print(f"Loaded {len(sources)} sources: {sources}")
+    args = parser.parse_args()
 
-# Skip static images - focus on animation only
+    print("Generating visualizations...")
+    print(f"Using {args.ntasks} tasks, grid size {args.grid_size}x{args.grid_size}")
 
-# Generate animation
-print("Generating animation...")
-try:
-    fig, ax = plt.subplots(figsize=(10, 8))
+    # Parameters
+    ntasks = args.ntasks
+    grid_size = args.grid_size
 
-    # Load all iterations
-    frames = []
-    max_iterations = 250  # Animation length
+    # Load sources with correct coordinate transformation
+    sources = load_sources_from_logs("data_logging", ntasks=ntasks, grid_size=grid_size)
+    print(f"Loaded {len(sources)} sources: {sources}")
 
-    for i in range(max_iterations):
-        try:
-            grid = assemble_global_grid_from_patches(
-                prefix="data_logging/",
-                iteration=i,
-                ntasks=ntasks,
-                grid_size=grid_size,
+    # Skip static images - focus on animation only
+
+    # Generate animation
+    print("Generating animation...")
+    try:
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        # Load all iterations
+        frames = []
+        max_iterations = 250  # Animation length
+
+        for i in range(max_iterations):
+            try:
+                grid = assemble_global_grid_from_patches(
+                    prefix="data_logging/",
+                    iteration=i,
+                    ntasks=ntasks,
+                    grid_size=grid_size,
+                )
+                frames.append(grid[1:-1, 1:-1].copy())  # Remove halo
+            except:
+                break
+
+        if len(frames) > 0:
+            # Create animation
+            im = ax.imshow(
+                frames[0],
+                cmap="hot",
+                origin="lower",
+                vmin=0,
+                vmax=max(f.max() for f in frames),
             )
-            frames.append(grid[1:-1, 1:-1].copy())  # Remove halo
-        except:
-            break
+            ax.set_title("Heat Stencil Diffusion Animation")
+            ax.set_xlabel("X position")
+            ax.set_ylabel("Y position")
 
-    if len(frames) > 0:
-        # Create animation
-        im = ax.imshow(
-            frames[0],
-            cmap="hot",
-            origin="lower",
-            vmin=0,
-            vmax=max(f.max() for f in frames),
-        )
-        ax.set_title("Heat Stencil Diffusion Animation")
-        ax.set_xlabel("X position")
-        ax.set_ylabel("Y position")
+            # Add colorbar
+            plt.colorbar(im, ax=ax, label="Energy")
 
-        # Add colorbar
-        plt.colorbar(im, ax=ax, label="Energy")
+            # Plot sources
+            for x, y in sources:
+                ax.plot(
+                    x - 1,
+                    y - 1,
+                    "bo",
+                    markersize=4,
+                    markeredgecolor="white",
+                    markeredgewidth=1,
+                    label="Energy Source" if sources.index((x, y)) == 0 else "",
+                )
 
-        # Plot sources
-        for x, y in sources:
-            ax.plot(
-                x - 1,
-                y - 1,
-                "bo",
-                markersize=4,
-                markeredgecolor="white",
-                markeredgewidth=1,
-                label="Energy Source" if sources.index((x, y)) == 0 else "",
+            def animate(frame_num):
+                im.set_array(frames[frame_num])
+                ax.set_title(f"Heat Stencil Diffusion - Iteration {frame_num}")
+                return [im]
+
+            anim = animation.FuncAnimation(
+                fig, animate, frames=len(frames), interval=200, blit=True
             )
+            anim.save("heat_diffusion_animation.gif", writer="pillow", fps=15)
+            print(f"✓ Generated animation with {len(frames)} frames")
+        else:
+            print("✗ No frames found for animation")
 
-        def animate(frame_num):
-            im.set_array(frames[frame_num])
-            ax.set_title(f"Heat Stencil Diffusion - Iteration {frame_num}")
-            return [im]
+    except Exception as e:
+        print(f"✗ Error generating animation: {e}")
 
-        anim = animation.FuncAnimation(
-            fig, animate, frames=len(frames), interval=200, blit=True
-        )
-        anim.save("heat_diffusion_animation.gif", writer="pillow", fps=15)
-        print(f"✓ Generated animation with {len(frames)} frames")
-    else:
-        print("✗ No frames found for animation")
+    print("Visualization generation complete!")
 
-except Exception as e:
-    print(f"✗ Error generating animation: {e}")
 
-print("Visualization generation complete!")
+if __name__ == "__main__":
+    main()
