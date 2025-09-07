@@ -18,7 +18,8 @@
 #define _x_ 0
 #define _y_ 1
 
-#define MEMORY_ALIGNMENT 64 // 64 bytes = 512 bits alignment for SIMD
+// 64 bytes = 512 bits alignment for SIMD
+#define MEMORY_ALIGNMENT 64
 
 typedef unsigned int uint;
 
@@ -40,8 +41,7 @@ typedef enum {
 } error_code_t;
 
 typedef uint vec2_t[2];
-typedef double *restrict buffers_t[4];
-// NOTE: Added a more specific definition
+
 typedef struct {
   // restrict makes sure that the pointers are the only references
   // to the memory they point to
@@ -56,14 +56,11 @@ extern void update_plane(const int, const vec2_t, const plane_t *, plane_t *);
 
 extern void get_total_energy(plane_t *, double *);
 
-extern void initialize_send_buffers_datatype(buffers_t buffers[2], plane_t *);
-
 extern error_code_t initialize(MPI_Comm *, int, int, int, char **, vec2_t *,
                                vec2_t *, int *, int *, int *, int *, int *,
-                               int *, vec2_t **, double *, plane_t *,
-                               buffers_t *);
+                               int *, vec2_t **, double *, plane_t *);
 
-extern error_code_t exchange_halos(buffers_t buffers[2], int *neighbours,
+extern error_code_t exchange_halos(plane_t *plane, int *neighbours,
                                    MPI_Comm *Comm, MPI_Request requests[8],
                                    MPI_Datatype north_south_type,
                                    MPI_Datatype east_west_type);
@@ -83,24 +80,37 @@ inline void inject_energy(const int periodic, const int num_sources,
 
 #define IDX(i, j) ((j) * size_x + (i))
   for (int s = 0; s < num_sources; s++) {
-    int x = sources[s][_x_];
-    int y = sources[s][_y_];
+    int x = sources[s][_x_]; // Local x coordinate (1-based, within
+                             // computational domain)
+    int y = sources[s][_y_]; // Local y coordinate (1-based, within
+                             // computational domain)
 
+    // Add energy to the source location
     data[IDX(x, y)] += energy;
 
+    // Periodic boundary propagation for sources at domain edges
+    // When a source is at the edge, energy must also be added to the opposite
+    // side
     if (periodic) {
       // NOTE: To conclude check
       // propagate the boundaries if needed
       // check the serial version
-      //
+
+      // If source is at left edge (x == 1), add to right edge
       if (x == 1)
         plane->data[IDX(N[_x_] + 1, y)] += energy;
-      if ((N[_x_] == 1)) {
+
+      // Special case: single rank in X, wrap to left halo
+      if (N[_x_] == 1) {
         plane->data[IDX(0, y)] += energy;
       }
+
+      // If source is at top edge (y == 1), add to bottom edge
       if (y == 1)
         plane->data[IDX(x, N[_y_] + 1)] += energy;
-      if ((N[_y_] == 1)) {
+
+      // Special case: single rank in Y, wrap to top halo
+      if (N[_y_] == 1) {
         plane->data[IDX(x, 0)] += energy;
       }
     }
@@ -108,72 +118,63 @@ inline void inject_energy(const int periodic, const int num_sources,
 #undef IDX
 }
 
-inline void initialize_send_buffers_datatype(buffers_t buffers[2],
-                                             plane_t *plane) {
-  // Sets SEND buffers to point to internal plane data and RECV buffers to halo
-  // locations for direct MPI datatype-based communication (avoids buffer
-  // copies)
-  const uint size_x = plane->size[_x_];
-  const uint size_y = plane->size[_y_];
-  const uint stride = size_x + 2;
-
-  // +1 to skip the halo since we want the actual data I believe
-  // buffers_ptr[SEND][NORTH] = &planes_ptr[OLD].data[1 * (size_x + 2) + 1];
-  // buffers_ptr[SEND][SOUTH] = &planes_ptr[OLD].data[size_y * (size_x + 2) +
-  // 1];
-
-  // Starting from the internal row so I have to move by 1 stride + 1
-  // NORTH send buffer points to the first element of the top internal row
-  buffers[SEND][NORTH] = &plane->data[stride + 1];
-  // Fill SOUTH buffer points to the first bottom internal row
-  buffers[SEND][SOUTH] = &plane->data[size_y * stride + 1];
-  // Start position of the WEST buffer leftmost internal column
-  buffers[SEND][WEST] = &plane->data[stride + 1];
-  // Start position of the EAST buffer rightmost internal column
-  buffers[SEND][EAST] = &plane->data[stride + size_x];
-
-  // ghost row 0 first element
-  buffers[RECV][NORTH] = &plane->data[1];
-  // ghost row at the bottom
-  buffers[RECV][SOUTH] = &plane->data[(size_y + 1) * stride + 1];
-
-  // ghost row 1 first (halo element)
-  buffers[RECV][WEST] = &plane->data[stride];
-  // ghost row at east (halo element)
-  buffers[RECV][EAST] = &plane->data[stride + size_x + 1];
-}
-
-extern error_code_t exchange_halos(buffers_t buffers[2], int *neighbours,
+extern error_code_t exchange_halos(plane_t *plane, int *neighbours,
                                    MPI_Comm *Comm, MPI_Request requests[8],
                                    MPI_Datatype north_south_type,
                                    MPI_Datatype east_west_type) {
   int rc = MPI_SUCCESS; // Accumulate MPI errors with OR to check all at once
 
-  // NORTH-SOUTH exchanges, also making an or with the return value for later
+  const uint size_x = plane->size[_x_];
+  const uint size_y = plane->size[_y_];
+  const uint stride = size_x + 2;
+
+  // Sets SEND buffers to point to internal plane data and RECV buffers to halo
+  // locations for direct MPI datatype-based communication (avoids copies)
+
+  // Send addresses (point to internal data that will be sent to neighbors)
+  // First element of top internal row (skip halo)
+  double *send_north = &plane->data[stride + 1];
+  // First element of bottom internal row
+  double *send_south = &plane->data[size_y * stride + 1];
+  // Leftmost internal column (skip left halo)
+  double *send_west = &plane->data[stride + 1];
+  // Rightmost internal column
+  double *send_east = &plane->data[stride + size_x];
+
+  // Receive addresses (point to halo locations where data will be stored)
+  // Top halo row (ghost cells for north neighbor)
+  double *recv_north = &plane->data[1];
+  // Bottom halo row
+  double *recv_south = &plane->data[(size_y + 1) * stride + 1];
+  // Left halo column (skip top-left corner halo)
+  double *recv_west = &plane->data[stride];
+  // Right halo column
+  double *recv_east = &plane->data[stride + size_x + 1];
+
   // NOTE: count = 1 because we send the entire pre-committed datatype
   // NOTE: MPI automatically handles sends/receives to MPI_PROC_NULL as no-ops
   // NOTE: Keep the receive first send after order we would use for blocking
   // version which avoid deadlocks
-  rc |= MPI_Irecv(buffers[RECV][SOUTH], 1, north_south_type, neighbours[SOUTH],
-                  NORTH, *Comm, &requests[0]);
-  rc |= MPI_Isend(buffers[SEND][NORTH], 1, north_south_type, neighbours[NORTH],
-                  NORTH, *Comm, &requests[1]);
+  rc |= MPI_Irecv(recv_south, 1, north_south_type, neighbours[SOUTH], NORTH,
+                  *Comm, &requests[0]);
+  rc |= MPI_Isend(send_north, 1, north_south_type, neighbours[NORTH], NORTH,
+                  *Comm, &requests[1]);
 
-  rc |= MPI_Irecv(buffers[RECV][NORTH], 1, north_south_type, neighbours[NORTH],
-                  SOUTH, *Comm, &requests[2]);
-  rc |= MPI_Isend(buffers[SEND][SOUTH], 1, north_south_type, neighbours[SOUTH],
-                  SOUTH, *Comm, &requests[3]);
+  rc |= MPI_Irecv(recv_north, 1, north_south_type, neighbours[NORTH], SOUTH,
+                  *Comm, &requests[2]);
+  rc |= MPI_Isend(send_south, 1, north_south_type, neighbours[SOUTH], SOUTH,
+                  *Comm, &requests[3]);
 
-  // // EAST-WEST exchanges
-  rc |= MPI_Irecv(buffers[RECV][WEST], 1, east_west_type, neighbours[WEST],
-                  EAST, *Comm, &requests[4]);
-  rc |= MPI_Isend(buffers[SEND][EAST], 1, east_west_type, neighbours[EAST],
-                  EAST, *Comm, &requests[5]);
+  // EAST-WEST exchanges
+  rc |= MPI_Irecv(recv_west, 1, east_west_type, neighbours[WEST], EAST, *Comm,
+                  &requests[4]);
+  rc |= MPI_Isend(send_east, 1, east_west_type, neighbours[EAST], EAST, *Comm,
+                  &requests[5]);
 
-  rc |= MPI_Irecv(buffers[RECV][EAST], 1, east_west_type, neighbours[EAST],
-                  WEST, *Comm, &requests[6]);
-  rc |= MPI_Isend(buffers[SEND][WEST], 1, east_west_type, neighbours[WEST],
-                  WEST, *Comm, &requests[7]);
+  rc |= MPI_Irecv(recv_east, 1, east_west_type, neighbours[EAST], WEST, *Comm,
+                  &requests[6]);
+  rc |= MPI_Isend(send_west, 1, east_west_type, neighbours[WEST], WEST, *Comm,
+                  &requests[7]);
 
   // Single check at the end
   if (rc != MPI_SUCCESS) {
@@ -185,27 +186,31 @@ extern error_code_t exchange_halos(buffers_t buffers[2], int *neighbours,
 
 inline void update_plane(const int periodic,
                          const vec2_t N, // MPI grid of ranks
-                         const plane_t *oldplane, plane_t *newplane) {
+                         const plane_t *old_plane, plane_t *new_plane) {
 
-  const uint f_xsize = oldplane->size[_x_] + 2;
-  const uint x_size = oldplane->size[_x_];
-  const uint y_size = oldplane->size[_y_];
+  const uint f_xsize = old_plane->size[_x_] + 2;
+  const uint x_size = old_plane->size[_x_];
+  const uint y_size = old_plane->size[_y_];
 
-  double *restrict newp = newplane->data;
-  const double *restrict oldp = oldplane->data;
+  double *restrict new_p = new_plane->data;
+  const double *restrict old_p = old_plane->data;
 
-  // Use defined stencil coefficients
-  const double c_center = 0.5;
-  const double c_neigh = 0.125; // 1/8
+  // 5-point stencil coefficients: center + 4 neighbors (N,S,E,W)
+  const double c_center = 0.5;  // Center weight
+  const double c_neigh = 0.125; // Neighbor weight (1/8)
 
-// Row-parallel, inner loop vectorized by compiler
+  // Outer loop: parallelize over rows for load balancing
+  // Pre-compute row pointers outside inner loop reduce address calculations
 #pragma omp parallel for schedule(static)
   for (uint j = 1; j <= y_size; ++j) {
-    const double *row_above = oldp + (j - 1) * f_xsize;
-    const double *row_center = oldp + j * f_xsize;
-    const double *row_below = oldp + (j + 1) * f_xsize;
-    double *row_new = newp + j * f_xsize;
+    // Pre-compute row pointers to avoid repeated offset calculations
+    const double *row_above = old_p + (j - 1) * f_xsize;
+    const double *row_center = old_p + j * f_xsize;
+    const double *row_below = old_p + (j + 1) * f_xsize;
+    double *row_new = new_p + j * f_xsize;
 
+    // Inner loop: automatically vectorized by -O3 due to simple arithmetic
+    // No conditional branches to maintain SIMD efficiency
 #pragma omp simd
     for (uint i = 1; i <= x_size; ++i) {
 
@@ -224,31 +229,36 @@ inline void update_plane(const int periodic,
       const double up = row_above[i];
       const double down = row_below[i];
 
+      // 5-point stencil computation: center*0.5 + neighbors*0.125 each
       row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
     }
   }
 
-  // Periodic propagation for single-rank-in-dimension cases (your original
-  // intent)
+  // Periodic boundary handling for single-rank dimensions
+  // When there's only one MPI rank in a dimension, we can't exchange halos
+  // with neighboring processes, so we must wrap boundaries locally
   if (periodic) {
-    // If only one rank along X, wrap left/right ghosts locally
+    // Special case: single rank along X dimension
+    // Wrap left/right edges to simulate periodic boundaries
     if (N[_x_] == 1) {
       for (uint j = 1; j <= y_size; ++j) {
-        double *row = newp + j * f_xsize;
-        row[0] = row[x_size];     // left ghost  <= right edge
-        row[x_size + 1] = row[1]; // right ghost <= left  edge
+        double *row = new_p + j * f_xsize;
+        row[0] = row[x_size];     // left ghost = right edge
+        row[x_size + 1] = row[1]; // right ghost = left edge
       }
     }
-    // If only one rank along Y, wrap top/bottom ghosts locally
+    // Special case: single rank along Y dimension
+    // Wrap top/bottom edges to simulate periodic boundaries
     if (N[_y_] == 1) {
-      double *row_top = newp + 1 * f_xsize;
-      double *row_bottom = newp + y_size * f_xsize;
-      double *row_topghost = newp + 0 * f_xsize;
-      double *row_bottomghost = newp + (y_size + 1) * f_xsize;
+      double *row_top = new_p + 1 * f_xsize;         // first computational row
+      double *row_bottom = new_p + y_size * f_xsize; // last computational row
+      double *row_topghost = new_p + 0 * f_xsize;    // top halo row
+      double *row_bottomghost =
+          new_p + (y_size + 1) * f_xsize; // bottom halo row
 
       for (uint i = 1; i <= x_size; ++i) {
-        row_topghost[i] = row_bottom[i];
-        row_bottomghost[i] = row_top[i];
+        row_topghost[i] = row_bottom[i]; // top ghost = bottom edge
+        row_bottomghost[i] = row_top[i]; // bottom ghost = top edge
       }
     }
   }

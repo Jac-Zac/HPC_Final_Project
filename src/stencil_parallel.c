@@ -16,7 +16,6 @@ int main(int argc, char **argv) {
   double energy_per_source;
 
   plane_t planes[2];
-  buffers_t buffers[2];
 
   int output_energy_stats;
 
@@ -48,7 +47,7 @@ int main(int argc, char **argv) {
       initialize(&my_COMM_WORLD, rank, num_tasks, argc, argv, &global_grid_size,
                  &mpi_tasks_grid, &periodic, &output_energy_stats, neighbours,
                  &num_iterations, &num_sources, &num_sources_local,
-                 &sources_local, &energy_per_source, &planes[0], &buffers[0]);
+                 &sources_local, &energy_per_source, &planes[0]);
 
   if (ret) {
     printf("task %d is opting out with termination code %d\n", rank, ret);
@@ -73,18 +72,21 @@ int main(int argc, char **argv) {
 
   double total_start_time = MPI_Wtime();
 
-  // Define and commit custom MPI datatype
-  // HACK: Datatype allows for more efficient buffering compared to buffers
+  // Define and commit custom MPI datatypes for efficient halo exchange
+  // Using MPI datatypes avoids explicit buffer copies and leverages MPI's
+  // optimized data movement for non-contiguous memory regions
   int x_size = planes[OLD].size[_x_];
   int y_size = planes[OLD].size[_y_];
   MPI_Datatype north_south_type;
   MPI_Datatype east_west_type;
 
-  // North-South are continues in memory
+  // North-South exchanges: data is contiguous in memory (full rows)
   MPI_Type_contiguous(x_size, MPI_DOUBLE, &north_south_type);
-  // West and East are require stride acces
-  int element_per_block = 1;
-  int stride = x_size + 2;
+
+  // East-West exchanges: data is non-contiguous (single column with stride)
+  // Use vector datatype to handle strided access pattern
+  int element_per_block = 1; // One element per block (single column)
+  int stride = x_size + 2;   // Total row width including halos
   // https: // rookiehpc.org/mpi/docs/mpi_type_vector/index.html
   MPI_Type_vector(y_size, element_per_block, stride, MPI_DOUBLE,
                   &east_west_type);
@@ -111,9 +113,8 @@ int main(int argc, char **argv) {
 
     /* --- COMMUNICATION PHASE --- */
     t_comm_start = MPI_Wtime();
-    initialize_send_buffers_datatype(buffers, &planes[current]);
     error_code_t ret =
-        exchange_halos(buffers, neighbours, &my_COMM_WORLD, requests,
+        exchange_halos(&planes[current], neighbours, &my_COMM_WORLD, requests,
                        north_south_type, east_west_type);
 
     MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
@@ -152,7 +153,7 @@ int main(int argc, char **argv) {
       }
     }
 
-    // swap plane indexes for the new iteration
+    // Swap plane roles: NEW becomes OLD for next iteration
     current = !current;
   }
 
@@ -238,7 +239,7 @@ error_code_t initialize(
     int *num_sources,    // how many heat sources
     int *num_local_sources, vec2_t **local_sources,
     double *energy_per_source, // how much heat per source
-    plane_t *planes, buffers_t *buffers) {
+    plane_t *planes) {
   int halt = 0;
   int ret;
   int verbose = 0;
@@ -271,11 +272,6 @@ error_code_t initialize(
   // Set the neighbours to MPI null as default
   for (int i = 0; i < 4; i++)
     neighbours[i] = MPI_PROC_NULL;
-
-  // Set initially the buffers to null pointres
-  for (int b = 0; b < 2; b++)
-    for (int d = 0; d < 4; d++)
-      buffers[b][d] = NULL;
 
   // ··································································
   // process the command line
