@@ -1,7 +1,5 @@
 # TODO:
 
-- [ ] Make Irecv and Isend communication
-- [ ] Try mpi datatypes for east and west and north and south continues
 - [ ] Big run
 - [ ] Report / PowerPoint presentation
 - [ ] Plot also the serial TIME
