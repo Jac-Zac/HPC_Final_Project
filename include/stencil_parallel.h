@@ -180,34 +180,38 @@ extern error_code_t exchange_halos(plane_t *plane, int *neighbours,
   return SUCCESS;
 }
 
-void inline update_plane_inner(const plane_t *old_plane, plane_t *new_plane) {
+inline void update_plane_inner(const plane_t *old_plane, plane_t *new_plane) {
   const double *restrict old = old_plane->data;
   double *restrict newp = new_plane->data;
 
-  const uint stride =
-      old_plane->size[_x_] + 2; // leading dimension (with halos)
+  const uint stride = old_plane->size[_x_] + 2;
   const uint x_size = old_plane->size[_x_];
   const uint y_size = old_plane->size[_y_];
 
-  // Tunable tile sizes — experiment with 128, 256, 512
-  const uint Tx = 256;
+  // Use the correct stencil coefficients
+  const double c_center = STENCIL_CENTER_COEFF;
+  const double c_neigh = STENCIL_NEIGHBOR_COEFF;
+
+  // Keep tiling, but use the correct formula
+  const uint Tx = 256; // This size will be adjusted next
   const uint Ty = 256;
 
 #pragma omp parallel for collapse(2) schedule(static)
   for (uint jj = 2; jj <= y_size - 1; jj += Ty) {
     for (uint ii = 2; ii <= x_size - 1; ii += Tx) {
-
       uint jmax = (jj + Ty - 1 < y_size - 1) ? jj + Ty - 1 : y_size - 1;
       uint imax = (ii + Tx - 1 < x_size - 1) ? ii + Tx - 1 : x_size - 1;
 
       for (uint j = jj; j <= jmax; ++j) {
-        const uint row = j * stride;
-
+        const uint row_offset = j * stride;
 #pragma omp simd
         for (uint i = ii; i <= imax; ++i) {
-          newp[row + i] =
-              0.25 * (old[row + i - 1] + old[row + i + 1] +
-                      old[(j - 1) * stride + i] + old[(j + 1) * stride + i]);
+          // CORRECT 5-POINT STENCIL
+          newp[row_offset + i] =
+              old[row_offset + i] * c_center +
+              (old[row_offset + i - 1] + old[row_offset + i + 1] +
+               old[row_offset - stride + i] + old[row_offset + stride + i]) *
+                  c_neigh;
         }
       }
     }
