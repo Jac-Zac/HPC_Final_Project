@@ -4,22 +4,25 @@ HPC Heat-Stencil Scaling Analysis Plotter
 
 This script analyzes and plots scaling performance for MPI and OpenMP implementations
 of the heat-stencil simulation. It generates multiple plots comparing measured performance
-against ideal scaling curves.
+against ideal scaling curves, including a combined log-log plot with computation,
+communication, and total time.
 
 Usage:
     python plot_strong_scaling.py [options] [mpi_file] [openmp_file]
 
 Options:
-    --save-dir DIR     Save plots to specified directory (default: plots/)
-    --no-show         Don't display plots (useful for headless environments)
-    --mpi-only        Plot only MPI scaling data
-    --openmp-only     Plot only OpenMP scaling data
+    --save-dir DIR              Save plots to specified directory (default: plots/)
+    --no-show                   Don't display plots (useful for headless environments)
+    --mpi-only                  Plot only MPI scaling data
+    --openmp-only               Plot only OpenMP scaling data
+    --combined-timing-only      Generate only the combined timing log-log plot
 
 Examples:
     python plot_strong_scaling.py                          # Use default files
     python plot_strong_scaling.py --save-dir results/     # Save to custom directory
     python plot_strong_scaling.py mpi_data.csv openmp_data.csv
     python plot_strong_scaling.py --mpi-only mpi_data.csv
+    python plot_strong_scaling.py --combined-timing-only mpi_data.csv openmp_data.csv
 """
 
 import argparse
@@ -214,6 +217,127 @@ def _plot_speedup_comparison(
         plt.close(fig)
 
 
+def _plot_combined_timing_loglog(
+    mpi_data=None, openmp_data=None, save_dir=None, show_plot=True
+):
+    """Create a single log-log plot with computation, communication, and total time."""
+
+    if mpi_data is None and openmp_data is None:
+        return
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    plotted = False
+
+    # Plot MPI data
+    if mpi_data is not None:
+        mpi_tasks = mpi_data["Tasks"]
+
+        # Total time
+        if "TotalTime" in mpi_data.columns and not mpi_data["TotalTime"].dropna().empty:
+            ax.plot(
+                mpi_tasks,
+                mpi_data["TotalTime"],
+                marker="o",
+                linestyle="-",
+                label="MPI Total Time",
+                color="blue",
+                linewidth=2,
+            )
+            plotted = True
+
+        # Computation time
+        if "MaxCompTime" in mpi_data.columns and not mpi_data["MaxCompTime"].dropna().empty:
+            ax.plot(
+                mpi_tasks,
+                mpi_data["MaxCompTime"],
+                marker="s",
+                linestyle="--",
+                label="MPI Computation Time",
+                color="blue",
+                alpha=0.8,
+            )
+
+        # Communication time
+        if "MaxCommTime" in mpi_data.columns and not mpi_data["MaxCommTime"].dropna().empty:
+            ax.plot(
+                mpi_tasks,
+                mpi_data["MaxCommTime"],
+                marker="^",
+                linestyle=":",
+                label="MPI Communication Time",
+                color="blue",
+                alpha=0.8,
+            )
+
+    # Plot OpenMP data
+    if openmp_data is not None:
+        openmp_threads = openmp_data["Threads"]
+
+        # Total time
+        if "TotalTime" in openmp_data.columns and not openmp_data["TotalTime"].dropna().empty:
+            ax.plot(
+                openmp_threads,
+                openmp_data["TotalTime"],
+                marker="o",
+                linestyle="-",
+                label="OpenMP Total Time",
+                color="red",
+                linewidth=2,
+            )
+            plotted = True
+
+        # Computation time
+        if "MaxCompTime" in openmp_data.columns and not openmp_data["MaxCompTime"].dropna().empty:
+            ax.plot(
+                openmp_threads,
+                openmp_data["MaxCompTime"],
+                marker="s",
+                linestyle="--",
+                label="OpenMP Computation Time",
+                color="red",
+                alpha=0.8,
+            )
+
+        # Communication time
+        if "MaxCommTime" in openmp_data.columns and not openmp_data["MaxCommTime"].dropna().empty:
+            ax.plot(
+                openmp_threads,
+                openmp_data["MaxCommTime"],
+                marker="^",
+                linestyle=":",
+                label="OpenMP Communication Time",
+                color="red",
+                alpha=0.8,
+            )
+
+    if not plotted:
+        return
+
+    # Log-log scaling
+    ax.set_xscale("log", base=2)
+    ax.set_yscale("log")
+    ax.set_xlabel("Number of Tasks/Threads (log₂)")
+    ax.set_ylabel("Time (s) - log scale")
+    ax.set_title("Strong Scaling: Combined Timing Analysis (Log-Log)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    # Save plot if directory specified
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        filename = "combined_timing_loglog.png"
+        filepath = os.path.join(save_dir, filename)
+        plt.savefig(filepath, dpi=300, bbox_inches="tight")
+        print(f"Saved plot: {filepath}")
+
+    if show_plot:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
 def _plot_efficiency_comparison(
     mpi_data=None, openmp_data=None, save_dir=None, show_plot=True
 ):
@@ -391,7 +515,12 @@ def plot_scaling_comparison(
         mpi_data, openmp_data, save_dir=save_dir, show_plot=show_plot
     )
 
-    # 6) Efficiency - always linear y-axis
+    # 6) Combined timing log-log plot
+    _plot_combined_timing_loglog(
+        mpi_data, openmp_data, save_dir=save_dir, show_plot=show_plot
+    )
+
+    # 7) Efficiency - always linear y-axis
     _plot_efficiency_comparison(
         mpi_data, openmp_data, save_dir=save_dir, show_plot=show_plot
     )
@@ -444,6 +573,7 @@ Examples:
   python plot_strong_scaling.py --save-dir results/     # Save to custom directory
   python plot_strong_scaling.py mpi_data.csv openmp_data.csv
   python plot_strong_scaling.py --mpi-only mpi_data.csv
+  python plot_strong_scaling.py --combined-timing-only mpi_data.csv openmp_data.csv
   python plot_strong_scaling.py --no-show --save-dir plots/
         """,
     )
@@ -466,6 +596,11 @@ Examples:
     parser.add_argument(
         "--openmp-only", action="store_true", help="Plot only OpenMP scaling data"
     )
+    parser.add_argument(
+        "--combined-timing-only",
+        action="store_true",
+        help="Generate only the combined timing log-log plot with computation, communication, and total time"
+    )
 
     args = parser.parse_args()
 
@@ -474,6 +609,9 @@ Examples:
 
     if args.mpi_only and args.openmp_only:
         parser.error("--mpi-only and --openmp-only cannot be used together")
+
+    if args.combined_timing_only and (args.mpi_only or args.openmp_only):
+        parser.error("--combined-timing-only cannot be used with --mpi-only or --openmp-only")
 
     if args.files:
         for file in args.files:
@@ -499,9 +637,38 @@ Examples:
     if save_dir is None and not args.no_show:
         save_dir = "plots"
 
-    plot_scaling_comparison(
-        mpi_file, openmp_file, save_dir=save_dir, show_plot=not args.no_show
-    )
+    if args.combined_timing_only:
+        # Load data and plot only combined timing
+        mpi_data = None
+        openmp_data = None
+
+        mpi_columns = ["Tasks", "TotalTime", "MaxCompTime", "MaxCommTime", "EnergyCompTime"]
+        openmp_columns = [
+            "Threads",
+            "TotalTime",
+            "MaxCompTime",
+            "MaxCommTime",
+            "EnergyCompTime",
+        ]
+
+        if mpi_file:
+            print(f"Loading MPI data from {mpi_file}...")
+            mpi_data = load_and_validate_data(mpi_file, mpi_columns)
+
+        if openmp_file:
+            print(f"Loading OpenMP data from {openmp_file}...")
+            openmp_data = load_and_validate_data(openmp_file, openmp_columns)
+
+        if mpi_data is None and openmp_data is None:
+            raise ValueError("No data provided: need at least MPI or OpenMP file.")
+
+        _plot_combined_timing_loglog(
+            mpi_data, openmp_data, save_dir=save_dir, show_plot=not args.no_show
+        )
+    else:
+        plot_scaling_comparison(
+            mpi_file, openmp_file, save_dir=save_dir, show_plot=not args.no_show
+        )
 
 
 if __name__ == "__main__":
