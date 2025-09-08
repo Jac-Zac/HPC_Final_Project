@@ -113,8 +113,8 @@ int memory_allocate(const uint[2], double **);
 int initialize_sources(uint[2], int, int **);
 
 int initialize(
-    int argc,         // the argc from command line
-    char **argv,      // the argv from command line
+    int argc __attribute__((unused)),         // the argc from command line
+    char **argv __attribute__((unused)),      // the argv from command line
     uint *S,          // two-uint array defining the x,y dimensions of the grid
     int *periodic,    // periodic-boundary tag
     int *Niterations, // how many iterations
@@ -198,7 +198,7 @@ int memory_allocate(const uint size[2], double **planes_ptr)
 /*
  * randomly spread heat sources
  */
-int initialize_sources(uint size[2], int Nsources, int **Sources) {
+int initialize_sources(uint size[2] __attribute__((unused)), int Nsources, int **Sources) {
   *Sources = (int *)malloc(Nsources * 2 * sizeof(uint));
 
   // Use fixed source positions matching the Python test

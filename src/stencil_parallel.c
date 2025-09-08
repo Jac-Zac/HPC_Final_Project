@@ -50,8 +50,10 @@ int main(int argc, char **argv) {
                  &sources_local, &energy_per_source, &planes[0]);
 
   if (ret) {
-    printf("task %d is opting out with termination code %d\n", rank, ret);
-
+    if (ret != HELP_DISPLAYED) {
+      printf("task %d is opting out with termination code %d\n", rank, ret);
+    }
+    
     MPI_Finalize();
     return SUCCESS;
   }
@@ -257,16 +259,16 @@ error_code_t initialize(
   int testing = 0;
 
   // ··································································
-  // set fixed values for testing
+  // Set default simulation parameters
 
-  (*plane_size)[_x_] = 10000;
-  (*plane_size)[_y_] = 10000;
+  (*plane_size)[_x_] = DEFAULT_GRID_SIZE;
+  (*plane_size)[_y_] = DEFAULT_GRID_SIZE;
   *periodic = 0;
-  *num_sources = 4;
+  *num_sources = DEFAULT_NUM_SOURCES;
   *num_local_sources = 0;
   *local_sources = NULL;
-  *num_iterations = 1000;
-  *energy_per_source = 1.0;
+  *num_iterations = DEFAULT_NUM_ITERATIONS;
+  *energy_per_source = DEFAULT_ENERGY_PER_SOURCE;
   *output_energy_stat = 0;
 
   if (planes == NULL) {
@@ -327,16 +329,18 @@ error_code_t initialize(
       case 'h': {
         if (Me == 0)
           printf("\nValid options (values in [] are defaults):\n"
-                 "-x    x size of the plate [10000]\n"
-                 "-y    y size of the plate [10000]\n"
-                 "-e    number of energy sources [4]\n"
-                 "-E    energy per source [1.0]\n"
-                 "-n    number of iterations [1000]\n"
+                 "-x    x size of the plate [%d]\n"
+                 "-y    y size of the plate [%d]\n"
+                 "-e    number of energy sources [%d]\n"
+                 "-E    energy per source [%.1f]\n"
+                 "-n    number of iterations [%d]\n"
                  "-o    output energy stats [0 = disabled, 1 = enabled]\n"
                  "-t    testing mode [0 = disabled, 1 = enabled]\n"
                  "-p    periodic boundaries [0 = false, 1 = true]\n"
                  "-v    verbosity level\n"
-                 "-h    show this help message\n\n");
+                 "-h    show this help message\n\n",
+                 DEFAULT_GRID_SIZE, DEFAULT_GRID_SIZE, DEFAULT_NUM_SOURCES,
+                 DEFAULT_ENERGY_PER_SOURCE, DEFAULT_NUM_ITERATIONS);
         halt = 1;
       } break;
 
@@ -355,7 +359,7 @@ error_code_t initialize(
   }
 
   if (halt)
-    return SUCCESS;
+    return HELP_DISPLAYED;
 
   // ··································································
   // Comprehensive input validation
@@ -676,22 +680,9 @@ int memory_allocate(plane_t *planes_ptr) {
   //   // manage the malloc fail
   //   return ERROR_MEMORY_ALLOCATION;
 
-  // NOTE: This old allocation method doesn't touch memory correctly
-  // memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
-  // memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
-
-  // Initialize memory by touching it correctly
-  const uint f_xsize = planes_ptr->size[_x_] + 2;
-  const uint xsize = planes_ptr->size[_x_];
-  const uint ysize = planes_ptr->size[_y_];
-
-#pragma omp parallel for schedule(static)
-  for (uint j = 0; j < ysize + 2; ++j) {
-    for (uint i = 0; i < xsize + 2; ++i) {
-      planes_ptr[OLD].data[j * f_xsize + i] = 0.0;
-      planes_ptr[NEW].data[j * f_xsize + i] = 0.0;
-    }
-  }
+  // Initialize memory efficiently - memset is faster than nested loops
+  memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
+  memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
 
   // ··················································
   // NOTE: In this case I will use MPI_Datatype directly for strided data

@@ -21,6 +21,12 @@
 #define STENCIL_CENTER_COEFF 0.5
 #define STENCIL_NEIGHBOR_COEFF 0.125 // 1/8
 
+// Default simulation parameters
+#define DEFAULT_GRID_SIZE 10000
+#define DEFAULT_NUM_SOURCES 4
+#define DEFAULT_NUM_ITERATIONS 1000
+#define DEFAULT_ENERGY_PER_SOURCE 1.0
+
 // 64 bytes = 512 bits alignment for SIMD
 #define MEMORY_ALIGNMENT 64
 
@@ -32,15 +38,16 @@ typedef enum { NORTH = 0, SOUTH = 1, EAST = 2, WEST = 3 } direction_t;
 // Error codes enum
 typedef enum {
   SUCCESS = 0,
-  ERROR_INVALID_GRID_SIZE = 1,
-  ERROR_INVALID_NUM_SOURCES = 2,
-  ERROR_INVALID_NUM_ITERATIONS = 3,
-  ERROR_NULL_POINTER = 4,
-  ERROR_MEMORY_ALLOCATION = 5,
-  ERROR_INITIALIZE_SOURCES = 6,
-  ERROR_MPI_FAILURE = 7,
-  ERROR_FILE_DUMPING = 8,
-  ERROR_INVALID_ENERGY_VALUE = 9
+  HELP_DISPLAYED = 1,  // Special code for help display - not an error
+  ERROR_INVALID_GRID_SIZE = 2,
+  ERROR_INVALID_NUM_SOURCES = 3,
+  ERROR_INVALID_NUM_ITERATIONS = 4,
+  ERROR_NULL_POINTER = 5,
+  ERROR_MEMORY_ALLOCATION = 6,
+  ERROR_INITIALIZE_SOURCES = 7,
+  ERROR_MPI_FAILURE = 8,
+  ERROR_FILE_DUMPING = 9,
+  ERROR_INVALID_ENERGY_VALUE = 10
 } error_code_t;
 
 typedef uint vec2_t[2];
@@ -302,144 +309,6 @@ inline void update_plane_borders(const int periodic, const vec2_t N,
   }
 
 #undef IDX
-}
-#else
-inline void update_plane_borders(const int periodic, const vec2_t N,
-                                 const plane_t *old_plane, plane_t *new_plane) {
-  const uint f_xsize = old_plane->size[_x_] + 2;
-  const uint x_size = old_plane->size[_x_];
-  const uint y_size = old_plane->size[_y_];
-
-  double *restrict new_p = new_plane->data;
-  const double *restrict old_p = old_plane->data;
-
-  // 5-point stencil coefficients: center + 4 neighbors (N,S,E,W)
-  const double c_center = STENCIL_CENTER_COEFF;
-  const double c_neigh = STENCIL_NEIGHBOR_COEFF;
-
-  /* --- Update left and right border columns (i=1 and i=x_size) --- */
-
-#pragma omp parallel for schedule(static)
-  for (uint j = 1; j <= y_size; ++j) {
-    // Pre-compute row pointers to avoid repeated offset calculations
-    const double *row_above = old_p + (j - 1) * f_xsize;
-    const double *row_center = old_p + j * f_xsize;
-    const double *row_below = old_p + (j + 1) * f_xsize;
-    double *row_new = new_p + j * f_xsize;
-
-    /* left border (i=1) */
-    {
-      const uint i = 1;
-      const double center = row_center[i];
-      const double left = row_center[i - 1];
-      const double right = row_center[i + 1];
-      const double up = row_above[i];
-      const double down = row_below[i];
-      row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-    }
-
-    /* right border (i=x_size) */
-    {
-      const uint i = x_size;
-      const double center = row_center[i];
-      const double left = row_center[i - 1];
-      const double right = row_center[i + 1];
-      const double up = row_above[i];
-      const double down = row_below[i];
-      row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-    }
-  }
-
-  /* --- Update top and bottom border rows (j=1 and j=y_size) --- */
-#pragma omp parallel for schedule(static)
-  for (uint i = 1; i <= x_size; ++i) {
-    /* top row (j=1) */
-    {
-      const uint j = 1;
-      const double *row_above = old_p + (j - 1) * f_xsize;
-      const double *row_center = old_p + j * f_xsize;
-      const double *row_below = old_p + (j + 1) * f_xsize;
-      double *row_new = new_p + j * f_xsize;
-
-      const double center = row_center[i];
-      const double left = row_center[i - 1];
-      const double right = row_center[i + 1];
-      const double up = row_above[i];
-      const double down = row_below[i];
-      row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-    }
-
-    /* bottom row (j=y_size) */
-    {
-      const uint j = y_size;
-      const double *row_above = old_p + (j - 1) * f_xsize;
-      const double *row_center = old_p + j * f_xsize;
-      const double *row_below = old_p + (j + 1) * f_xsize;
-      double *row_new = new_p + j * f_xsize;
-
-      const double center = row_center[i];
-      const double left = row_center[i - 1];
-      const double right = row_center[i + 1];
-      const double up = row_above[i];
-      const double down = row_below[i];
-      row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-    }
-  }
-
-  // /* --- Periodic wrap for single-rank dimensions --- */
-  // Periodic boundary handling for single-rank dimensions
-  // When there's only one MPI rank in a dimension, we can't exchange halos
-  // with neighboring processes, so we must wrap boundaries locally
-  if (periodic) {
-    // Wrap left/right edges to simulate periodic boundaries
-    if (N[_x_] == 1) {
-      for (uint j = 1; j <= y_size; ++j) {
-        double *row = new_p + j * f_xsize;
-        row[0] = row[x_size];
-        row[x_size + 1] = row[1];
-      }
-    }
-    // Wrap top/bottom edges to simulate periodic boundaries
-    if (N[_y_] == 1) {
-      double *row_top = new_p + 1 * f_xsize;
-      double *row_bottom = new_p + y_size * f_xsize;
-      double *row_topghost = new_p + 0 * f_xsize;
-      double *row_bottomghost = new_p + (y_size + 1) * f_xsize;
-
-      for (uint i = 1; i <= x_size; ++i) {
-        row_topghost[i] = row_bottom[i];
-        row_bottomghost[i] = row_top[i];
-      }
-    }
-  }
-
-  // // Periodic boundary handling for single-rank dimensions
-  // // When there's only one MPI rank in a dimension, we can't exchange halos
-  // // with neighboring processes, so we must wrap boundaries locally
-  // if (periodic) {
-  //   // Special case: single rank along X dimension
-  //   // Wrap left/right edges to simulate periodic boundaries
-  //   if (N[_x_] == 1) {
-  //     for (uint j = 1; j <= y_size; ++j) {
-  //       double *row = new_p + j * f_xsize;
-  //       row[0] = row[x_size];
-  //       row[x_size + 1] = row[1];
-  //     }
-  //   }
-  //   // Special case: single rank along Y dimension
-  //   // Wrap top/bottom edges to simulate periodic boundaries
-  //   if (N[_y_] == 1) {
-  //     double *row_top = new_p + 1 * f_xsize;
-  //     double *row_bottom = new_p + y_size * f_xsize;
-  //     double *row_topghost = new_p + 0 * f_xsize;
-  //     double *row_bottomghost = new_p + (y_size + 1) * f_xsize;
-  //
-  //     for (uint i = 1; i <= x_size; ++i) {
-  //       row_topghost[i] = row_bottom[i];
-  //       row_bottomghost[i] = row_top[i];
-  //     }
-  //   }
-  // }
 }
 
 #endif
