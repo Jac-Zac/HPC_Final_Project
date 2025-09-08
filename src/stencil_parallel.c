@@ -137,8 +137,35 @@ int main(int argc, char **argv) {
     t_comm_start = MPI_Wtime();
 
     // HACK: To review
-    // NOTE: I could switch this with Waitany and then start with the border I
-    // have but I don't think this is the biggest performance killer currently
+    // NOTE: I could switch this with MPI_Waitsome and then start with the
+    // border I have but I don't think this is the biggest performance killer
+    // currently
+    //
+    // exchange_halos(requests, plane, ...);
+    // update_plane_inner(plane, ...);   // do interior first
+    //
+    // int outcount, indices[8];
+    // MPI_Status statuses[8];
+    // int completed[8] = {0};  // track which halos arrived
+    //
+    // while (true) {
+    //     MPI_Waitsome(8, requests, &outcount, indices, statuses);
+    //     if (outcount == MPI_UNDEFINED) break; // all done
+    //
+    //     for (int k = 0; k < outcount; k++) {
+    //         int idx = indices[k];
+    //         completed[idx] = 1;
+    //
+    //         // process border as soon as recv is ready
+    //         switch (idx) {
+    //             case 0: update_north_border(plane,...); break;
+    //             case 1: update_south_border(plane,...); break;
+    //             case 2: update_west_border(plane,...);  break;
+    //             case 3: update_east_border(plane,...);  break;
+    //             // indices 4-7 are sends; nothing to compute after those
+    //         }
+    //     }
+    // }
     //
     MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
     comm_times[iter] += MPI_Wtime() - t_comm_start;
