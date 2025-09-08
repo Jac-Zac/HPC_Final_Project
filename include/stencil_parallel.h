@@ -52,8 +52,6 @@ typedef struct {
 extern void inject_energy(const int, const int, const vec2_t *, const double,
                           plane_t *, const vec2_t);
 
-extern void update_plane(const int, const vec2_t, const plane_t *, plane_t *);
-
 extern void get_total_energy(plane_t *, double *);
 
 extern error_code_t initialize(MPI_Comm *, int, int, int, char **, vec2_t *,
@@ -223,6 +221,86 @@ inline void update_plane_inner(const plane_t *old_plane, plane_t *new_plane) {
   }
 }
 
+#define UPDATED
+#ifdef UPDATED
+
+inline void update_plane_borders(const int periodic, const vec2_t N,
+                                 const plane_t *old_plane, plane_t *new_plane) {
+
+#define IDX(i, j) ((j) * f_xsize + (i))
+  const uint f_xsize = old_plane->size[_x_] + 2;
+  const uint x_size = old_plane->size[_x_];
+  const uint y_size = old_plane->size[_y_];
+
+  double *restrict new_p = new_plane->data;
+  const double *restrict old_p = old_plane->data;
+
+  const double c_center = 0.5;
+  const double c_neigh = 0.125;
+
+  /* --- Update left and right border columns (excluding corners) --- */
+#pragma omp parallel for schedule(static)
+  for (uint j = 2; j < y_size; ++j) {
+    // left border (i=1)
+    {
+      const uint i = 1;
+      new_p[IDX(i, j)] = old_p[IDX(i, j)] * c_center +
+                         (old_p[IDX(i - 1, j)] + old_p[IDX(i + 1, j)] +
+                          old_p[IDX(i, j - 1)] + old_p[IDX(i, j + 1)]) *
+                             c_neigh;
+    }
+    // right border (i=x_size)
+    {
+      const uint i = x_size;
+      new_p[IDX(i, j)] = old_p[IDX(i, j)] * c_center +
+                         (old_p[IDX(i - 1, j)] + old_p[IDX(i + 1, j)] +
+                          old_p[IDX(i, j - 1)] + old_p[IDX(i, j + 1)]) *
+                             c_neigh;
+    }
+  }
+
+  /* --- Update top and bottom border rows (including corners) --- */
+#pragma omp parallel for schedule(static)
+  for (uint i = 1; i <= x_size; ++i) {
+    // top row (j=1)
+    new_p[IDX(i, 1)] = old_p[IDX(i, 1)] * c_center +
+                       (old_p[IDX(i - 1, 1)] + old_p[IDX(i + 1, 1)] +
+                        old_p[IDX(i, 0)] + old_p[IDX(i, 2)]) *
+                           c_neigh;
+
+    // bottom row (j=y_size)
+    new_p[IDX(i, y_size)] =
+        old_p[IDX(i, y_size)] * c_center +
+        (old_p[IDX(i - 1, y_size)] + old_p[IDX(i + 1, y_size)] +
+         old_p[IDX(i, y_size - 1)] + old_p[IDX(i, y_size + 1)]) *
+            c_neigh;
+  }
+
+  /* --- Periodic wrap for single-rank dimensions --- */
+  if (periodic) {
+    if (N[_x_] == 1) {
+#pragma omp parallel for schedule(static)
+      for (uint j = 1; j <= y_size; ++j) {
+        new_p[IDX(0, j)] = new_p[IDX(x_size, j)];
+        new_p[IDX(x_size + 1, j)] = new_p[IDX(1, j)];
+      }
+    }
+    if (N[_y_] == 1) {
+      double *row_topghost = &new_p[IDX(0, 0)];
+      double *row_bottomghost = &new_p[IDX(0, y_size + 1)];
+      double *row_top = &new_p[IDX(0, 1)];
+      double *row_bottom = &new_p[IDX(0, y_size)];
+#pragma omp parallel for schedule(static)
+      for (uint i = 1; i <= x_size; ++i) {
+        row_topghost[i] = row_bottom[i];
+        row_bottomghost[i] = row_top[i];
+      }
+    }
+  }
+
+#undef IDX
+}
+#else
 inline void update_plane_borders(const int periodic, const vec2_t N,
                                  const plane_t *old_plane, plane_t *new_plane) {
   const uint f_xsize = old_plane->size[_x_] + 2;
@@ -238,8 +316,7 @@ inline void update_plane_borders(const int periodic, const vec2_t N,
 
   /* --- Update left and right border columns (i=1 and i=x_size) --- */
 
-  // NOTE: Perhaps I can switch loop order think about it
-  // #pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(static)
   for (uint j = 1; j <= y_size; ++j) {
     // Pre-compute row pointers to avoid repeated offset calculations
     const double *row_above = old_p + (j - 1) * f_xsize;
@@ -271,6 +348,7 @@ inline void update_plane_borders(const int periodic, const vec2_t N,
   }
 
   /* --- Update top and bottom border rows (j=1 and j=y_size) --- */
+#pragma omp parallel for schedule(static)
   for (uint i = 1; i <= x_size; ++i) {
     /* top row (j=1) */
     {
@@ -331,93 +409,37 @@ inline void update_plane_borders(const int periodic, const vec2_t N,
       }
     }
   }
-}
 
-inline void update_plane(const int periodic,
-                         const vec2_t N, // MPI grid of ranks
-                         const plane_t *old_plane, plane_t *new_plane) {
-  const uint f_xsize = old_plane->size[_x_] + 2;
-  const uint x_size = old_plane->size[_x_];
-  const uint y_size = old_plane->size[_y_];
-
-  double *restrict new_p = new_plane->data;
-  const double *restrict old_p = old_plane->data;
-
-  // 5-point stencil coefficients: center + 4 neighbors (N,S,E,W)
-  const double c_center = 0.5;  // Center weight
-  const double c_neigh = 0.125; // Neighbor weight (1/8)
-
-  // Outer loop: parallelize over rows for load balancing
-  // Pre-compute row pointers outside inner loop reduce address calculations
-#pragma omp parallel for schedule(static)
-  for (uint j = 1; j <= y_size; ++j) {
-    // Pre-compute row pointers to avoid repeated offset calculations
-    const double *row_above = old_p + (j - 1) * f_xsize;
-    const double *row_center = old_p + j * f_xsize;
-    const double *row_below = old_p + (j + 1) * f_xsize;
-    double *row_new = new_p + j * f_xsize;
-
-    // Inner loop: automatically vectorized by -O3 due to simple arithmetic
-    // No conditional branches to maintain SIMD efficiency
-#pragma omp simd
-    for (uint i = 1; i <= x_size; ++i) {
-
-      // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even
-      //       if this patch is at some border without periodic conditions;
-      //       in that case it is assumed that the +-1 points are outside the
-      //       plate and always have a value of 0, i.e. they are an
-      //       "infinite sink" of heat
-      const double center = row_center[i];
-      const double left = row_center[i - 1];
-      const double right = row_center[i + 1];
-      const double up = row_above[i];
-      const double down = row_below[i];
-
-      // 5-point stencil computation: center*0.5 + neighbors*0.125 each
-      row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-    }
-  }
-
-  // Periodic boundary handling for single-rank dimensions
-  // When there's only one MPI rank in a dimension, we can't exchange halos
-  // with neighboring processes, so we must wrap boundaries locally
-  if (periodic) {
-    // Special case: single rank along X dimension
-    // Wrap left/right edges to simulate periodic boundaries
-    if (N[_x_] == 1) {
-      for (uint j = 1; j <= y_size; ++j) {
-        double *row = new_p + j * f_xsize;
-        row[0] = row[x_size];
-        row[x_size + 1] = row[1];
-      }
-    }
-    // Special case: single rank along Y dimension
-    // Wrap top/bottom edges to simulate periodic boundaries
-    if (N[_y_] == 1) {
-      double *row_top = new_p + 1 * f_xsize;
-      double *row_bottom = new_p + y_size * f_xsize;
-      double *row_topghost = new_p + 0 * f_xsize;
-      double *row_bottomghost = new_p + (y_size + 1) * f_xsize;
-
-      for (uint i = 1; i <= x_size; ++i) {
-        row_topghost[i] = row_bottom[i];
-        row_bottomghost[i] = row_top[i];
-      }
-    }
-  }
-  // NOTE: Serial version
-  // if (periodic)
-  //   {
-  //     for (int i = 1; i <= xsize; i++) {
-  //       new_point[i] = new_point[IDX(i, ysize)];
-  //       new_point[IDX(i, ysize + 1)] = new_point[i];
-  //     }
-  //     for (int j = 1; j <= ysize; j++) {
-  //       new_point[IDX(0, j)] = new_point[IDX(xsize, j)];
-  //       new_point[IDX(xsize + 1, j)] = new_point[IDX(1, j)];
+  // // Periodic boundary handling for single-rank dimensions
+  // // When there's only one MPI rank in a dimension, we can't exchange halos
+  // // with neighboring processes, so we must wrap boundaries locally
+  // if (periodic) {
+  //   // Special case: single rank along X dimension
+  //   // Wrap left/right edges to simulate periodic boundaries
+  //   if (N[_x_] == 1) {
+  //     for (uint j = 1; j <= y_size; ++j) {
+  //       double *row = new_p + j * f_xsize;
+  //       row[0] = row[x_size];
+  //       row[x_size + 1] = row[1];
   //     }
   //   }
+  //   // Special case: single rank along Y dimension
+  //   // Wrap top/bottom edges to simulate periodic boundaries
+  //   if (N[_y_] == 1) {
+  //     double *row_top = new_p + 1 * f_xsize;
+  //     double *row_bottom = new_p + y_size * f_xsize;
+  //     double *row_topghost = new_p + 0 * f_xsize;
+  //     double *row_bottomghost = new_p + (y_size + 1) * f_xsize;
+  //
+  //     for (uint i = 1; i <= x_size; ++i) {
+  //       row_topghost[i] = row_bottom[i];
+  //       row_bottomghost[i] = row_top[i];
+  //     }
+  //   }
+  // }
 }
+
+#endif
 
 inline void get_total_energy(plane_t *plane, double *energy) {
   register const int x_size = plane->size[_x_];
