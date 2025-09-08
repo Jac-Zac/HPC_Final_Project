@@ -28,11 +28,8 @@ int main(int argc, char **argv) {
     // without restrictions. (Might be useful)
     MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &level_obtained);
     if (level_obtained < MPI_THREAD_FUNNELED) {
-      fprintf(
-          stderr,
-          "Rank %d: ERROR - MPI thread level obtained (%d) is insufficient. "
-          "Required: %d (MPI_THREAD_FUNNELED)\n",
-          rank, level_obtained, MPI_THREAD_FUNNELED);
+      printf("MPI_thread level obtained is %d instead of %d\n", level_obtained,
+             MPI_THREAD_FUNNELED);
       MPI_Finalize();
       exit(1);
     }
@@ -117,8 +114,6 @@ int main(int argc, char **argv) {
         exchange_halos(&planes[current], neighbours, &my_COMM_WORLD, requests,
                        north_south_type, east_west_type);
 
-    // MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
-
     // Return if unsuccessful
     if (ret != MPI_SUCCESS) {
       fprintf(stderr, "Rank %d: MPI halo exchange failed with error %d\n", rank,
@@ -132,9 +127,7 @@ int main(int argc, char **argv) {
     /* --- COMPUTATION PHASE --- */
     t_comp_start = MPI_Wtime();
 
-    // update grid points
-    // update_plane(periodic, mpi_tasks_grid, &planes[current],
-    // &planes[!current]); update grid points
+    // update inner part of the grid
     update_plane_inner(&planes[current], &planes[!current]);
 
     comp_times[iter] = MPI_Wtime() - t_comp_start;
@@ -142,6 +135,11 @@ int main(int argc, char **argv) {
 
     /* --- ADDITIONAL COMMUNICATION PHASE --- */
     t_comm_start = MPI_Wtime();
+
+    // HACK: To review
+    // NOTE: I could switch this with Waitany and then start with the border I
+    // have but I don't think this is the biggest performance killer currently
+    //
     MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
     comm_times[iter] += MPI_Wtime() - t_comm_start;
     /* --------------------------------------  */
@@ -282,7 +280,7 @@ error_code_t initialize(
 
   // NOTE: What was that
   planes[OLD].size[0] = planes[OLD].size[1] = 0;
-  planes[NEW].size[0] = planes[OLD].size[1] = 0;
+  planes[NEW].size[0] = planes[NEW].size[1] = 0;
 
   // Set the neighbours to MPI null as default
   for (int i = 0; i < 4; i++)
@@ -542,7 +540,7 @@ error_code_t initialize(
 // problem with openmp
 //
 // Think of using a Cartesian decomposition Topology-aware decomposition: With
-// the correct topology:
+// the correct topology: could be more efficient
 // https://edoras.sdsu.edu/~mthomas/sp17.605/lectures/MPI-Cart-Comms-and-Topos.pdf
 uint simple_factorization(uint a, int *n_factorss, uint **factors)
 /*

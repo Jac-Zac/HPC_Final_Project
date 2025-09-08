@@ -18,6 +18,9 @@
 #define _x_ 0
 #define _y_ 1
 
+#define STENCIL_CENTER_COEFF 0.5
+#define STENCIL_NEIGHBOR_COEFF 0.125 // 1/8
+
 // 64 bytes = 512 bits alignment for SIMD
 #define MEMORY_ALIGNMENT 64
 
@@ -186,8 +189,8 @@ inline void update_plane_inner(const plane_t *old_plane, plane_t *new_plane) {
   const double *restrict old_p = old_plane->data;
 
   // 5-point stencil coefficients: center + 4 neighbors (N,S,E,W)
-  const double c_center = 0.5;  // Center weight
-  const double c_neigh = 0.125; // Neighbor weight (1/8)
+  const double c_center = STENCIL_CENTER_COEFF;
+  const double c_neigh = STENCIL_NEIGHBOR_COEFF;
 
   // Outer loop: parallelize over rows for load balancing
   // Pre-compute row pointers outside inner loop reduce address calculations
@@ -235,8 +238,8 @@ inline void update_plane_borders(const int periodic, const vec2_t N,
   double *restrict new_p = new_plane->data;
   const double *restrict old_p = old_plane->data;
 
-  const double c_center = 0.5;
-  const double c_neigh = 0.125;
+  const double c_center = STENCIL_CENTER_COEFF;
+  const double c_neigh = STENCIL_NEIGHBOR_COEFF;
 
   /* --- Update left and right border columns (excluding corners) --- */
 #pragma omp parallel for schedule(static)
@@ -311,8 +314,8 @@ inline void update_plane_borders(const int periodic, const vec2_t N,
   const double *restrict old_p = old_plane->data;
 
   // 5-point stencil coefficients: center + 4 neighbors (N,S,E,W)
-  const double c_center = 0.5;
-  const double c_neigh = 0.125;
+  const double c_center = STENCIL_CENTER_COEFF;
+  const double c_neigh = STENCIL_NEIGHBOR_COEFF;
 
   /* --- Update left and right border columns (i=1 and i=x_size) --- */
 
