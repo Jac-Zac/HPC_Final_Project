@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
         exchange_halos(&planes[current], neighbours, &my_COMM_WORLD, requests,
                        north_south_type, east_west_type);
 
-    MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
+    // MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
 
     // Return if unsuccessful
     if (ret != MPI_SUCCESS) {
@@ -133,9 +133,24 @@ int main(int argc, char **argv) {
     t_comp_start = MPI_Wtime();
 
     // update grid points
-    update_plane(periodic, mpi_tasks_grid, &planes[current], &planes[!current]);
+    // update_plane(periodic, mpi_tasks_grid, &planes[current],
+    // &planes[!current]); update grid points
+    update_plane_inner(&planes[current], &planes[!current]);
 
     comp_times[iter] = MPI_Wtime() - t_comp_start;
+    /* ------------------------- */
+
+    /* --- ADDITIONAL COMMUNICATION PHASE --- */
+    t_comm_start = MPI_Wtime();
+    MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
+    comm_times[iter] += MPI_Wtime() - t_comm_start;
+    /* --------------------------------------  */
+
+    /* --- COMPUTATION PHASE --- */
+    t_comp_start = MPI_Wtime();
+    update_plane_borders(periodic, mpi_tasks_grid, &planes[current],
+                         &planes[!current]);
+    comp_times[iter] += MPI_Wtime() - t_comp_start;
     /* ------------------------- */
 
     // output if needed
