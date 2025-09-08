@@ -181,104 +181,48 @@ extern error_code_t exchange_halos(plane_t *plane, int *neighbours,
 }
 
 inline void update_plane_inner(const plane_t *old_plane, plane_t *new_plane) {
-  const double *restrict old_p = old_plane->data;
-  double *restrict new_p = new_plane->data;
-  const uint stride = old_plane->size[_x_] + 2;
+  const uint f_xsize = old_plane->size[_x_] + 2;
   const uint x_size = old_plane->size[_x_];
   const uint y_size = old_plane->size[_y_];
 
+  double *restrict new_p = new_plane->data;
+  const double *restrict old_p = old_plane->data;
+
+  // 5-point stencil coefficients: center + 4 neighbors (N,S,E,W)
   const double c_center = STENCIL_CENTER_COEFF;
   const double c_neigh = STENCIL_NEIGHBOR_COEFF;
 
-  // Cache-friendly tile sizes
-  // L1 cache is typically 32KB, L2 is 1-4MB
-  // For doubles (8 bytes), aim for tiles that fit comfortably in L2
-  const uint Tx = 64; // Much smaller tiles for better cache behavior
-  const uint Ty = 32; // Rectangular tiles often work better than square
-
-  // Parallelize over tile blocks, not individual tiles
+  // Outer loop: parallelize over rows for load balancing
+  // Pre-compute row pointers outside inner loop reduce address calculations
 #pragma omp parallel for schedule(static)
-  for (uint jj = 2; jj <= y_size - 1; jj += Ty) {
-    const uint jmax = (jj + Ty - 1 <= y_size - 1) ? jj + Ty - 1 : y_size - 1;
+  for (uint j = 2; j <= y_size - 1; ++j) {
+    // Pre-compute row pointers to avoid repeated offset calculations
+    const double *row_above = old_p + (j - 1) * f_xsize;
+    const double *row_center = old_p + j * f_xsize;
+    const double *row_below = old_p + (j + 1) * f_xsize;
+    double *row_new = new_p + j * f_xsize;
 
-    // Process tiles in this row sequentially for better cache reuse
-    for (uint ii = 2; ii <= x_size - 1; ii += Tx) {
-      const uint imax = (ii + Tx - 1 <= x_size - 1) ? ii + Tx - 1 : x_size - 1;
+    // Inner loop: automatically vectorized by -O3 due to simple arithmetic
+    // No conditional branches to maintain SIMD efficiency
+#pragma omp simd
+    for (uint i = 2; i <= x_size - 1; ++i) {
 
-      // Pre-compute row pointers for the tile
-      for (uint j = jj; j <= jmax; ++j) {
-        const double *row_above = old_p + (j - 1) * stride;
-        const double *row_center = old_p + j * stride;
-        const double *row_below = old_p + (j + 1) * stride;
-        double *row_new = new_p + j * stride;
+      // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even
+      //       if this patch is at some border without periodic conditions;
+      //       in that case it is assumed that the +-1 points are outside the
+      //       plate and always have a value of 0, i.e. they are an
+      //       "infinite sink" of heat
+      const double center = row_center[i];
+      const double left = row_center[i - 1];
+      const double right = row_center[i + 1];
+      const double up = row_above[i];
+      const double down = row_below[i];
 
-        // Inner loop with explicit vectorization hints
-#pragma omp simd aligned(row_above, row_center, row_below, row_new : 32)
-        for (uint i = ii; i <= imax; ++i) {
-          const double center = row_center[i];
-          const double left = row_center[i - 1];
-          const double right = row_center[i + 1];
-          const double up = row_above[i];
-          const double down = row_below[i];
-
-          row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
-        }
-      }
+      // 5-point stencil computation: center*0.5 + neighbors*0.125 each
+      row_new[i] = center * c_center + (left + right + up + down) * c_neigh;
     }
   }
 }
-
-// inline void update_plane_inner(const plane_t *old_plane, plane_t
-// *new_plane)
-// {
-//   const uint f_xsize = old_plane->size[_x_] + 2;
-//   const uint x_size = old_plane->size[_x_];
-//   const uint y_size = old_plane->size[_y_];
-//
-//   double *restrict new_p = new_plane->data;
-//   const double *restrict old_p = old_plane->data;
-//
-//   // 5-point stencil coefficients: center + 4 neighbors (N,S,E,W)
-//   const double c_center = STENCIL_CENTER_COEFF;
-//   const double c_neigh = STENCIL_NEIGHBOR_COEFF;
-//
-//   // Outer loop: parallelize over rows for load balancing
-//   // Pre-compute row pointers outside inner loop reduce address
-//   calculations
-// #pragma omp parallel for schedule(static)
-//   for (uint j = 2; j <= y_size - 1; ++j) {
-//     // Pre-compute row pointers to avoid repeated offset calculations
-//     const double *row_above = old_p + (j - 1) * f_xsize;
-//     const double *row_center = old_p + j * f_xsize;
-//     const double *row_below = old_p + (j + 1) * f_xsize;
-//     double *row_new = new_p + j * f_xsize;
-//
-//     // Inner loop: automatically vectorized by -O3 due to simple
-//     arithmetic
-//     // No conditional branches to maintain SIMD efficiency
-// #pragma omp simd
-//     for (uint i = 2; i <= x_size - 1; ++i) {
-//
-//       // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist
-//       even
-//       //       if this patch is at some border without periodic
-//       conditions;
-//       //       in that case it is assumed that the +-1 points are
-//       outside the
-//       //       plate and always have a value of 0, i.e. they are an
-//       //       "infinite sink" of heat
-//       const double center = row_center[i];
-//       const double left = row_center[i - 1];
-//       const double right = row_center[i + 1];
-//       const double up = row_above[i];
-//       const double down = row_below[i];
-//
-//       // 5-point stencil computation: center*0.5 + neighbors*0.125
-//       each row_new[i] = center * c_center + (left + right + up +
-//       down) * c_neigh;
-//     }
-//   }
-// }
 
 #define UPDATED
 #ifdef UPDATED
@@ -444,9 +388,8 @@ inline void update_plane_borders(const int periodic, const vec2_t N,
 
   // /* --- Periodic wrap for single-rank dimensions --- */
   // Periodic boundary handling for single-rank dimensions
-  // When there's only one MPI rank in a dimension, we can't exchange
-  // halos with neighboring processes, so we must wrap boundaries
-  // locally
+  // When there's only one MPI rank in a dimension, we can't exchange halos
+  // with neighboring processes, so we must wrap boundaries locally
   if (periodic) {
     // Wrap left/right edges to simulate periodic boundaries
     if (N[_x_] == 1) {
@@ -471,8 +414,7 @@ inline void update_plane_borders(const int periodic, const vec2_t N,
   }
 
   // // Periodic boundary handling for single-rank dimensions
-  // // When there's only one MPI rank in a dimension, we can't exchange
-  // halos
+  // // When there's only one MPI rank in a dimension, we can't exchange halos
   // // with neighboring processes, so we must wrap boundaries locally
   // if (periodic) {
   //   // Special case: single rank along X dimension
