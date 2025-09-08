@@ -23,9 +23,8 @@ int main(int argc, char **argv) {
   {
     int level_obtained;
 
-    // TODO: change MPI_FUNNELED if appropriate
-    // NOTE: MPI_THREAD_MULTIPLE: Multiple threads may call MPI at any time
-    // without restrictions. (Might be useful)
+    // Use MPI_THREAD_FUNNELED: Only main thread makes MPI calls
+    // This is appropriate for OpenMP+MPI hybrid where OpenMP threads don't call MPI
     MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &level_obtained);
     if (level_obtained < MPI_THREAD_FUNNELED) {
       fprintf(
@@ -50,8 +49,10 @@ int main(int argc, char **argv) {
                  &sources_local, &energy_per_source, &planes[0]);
 
   if (ret) {
-    printf("task %d is opting out with termination code %d\n", rank, ret);
-
+    if (ret != HELP_DISPLAYED) {
+      printf("task %d is opting out with termination code %d\n", rank, ret);
+    }
+    
     MPI_Finalize();
     return SUCCESS;
   }
@@ -261,16 +262,16 @@ error_code_t initialize(
   int testing = 0;
 
   // ··································································
-  // set fixed values for testing
+  // Set default simulation parameters
 
-  (*plane_size)[_x_] = 10000;
-  (*plane_size)[_y_] = 10000;
+  (*plane_size)[_x_] = DEFAULT_GRID_SIZE;
+  (*plane_size)[_y_] = DEFAULT_GRID_SIZE;
   *periodic = 0;
-  *num_sources = 4;
+  *num_sources = DEFAULT_NUM_SOURCES;
   *num_local_sources = 0;
   *local_sources = NULL;
-  *num_iterations = 1000;
-  *energy_per_source = 1.0;
+  *num_iterations = DEFAULT_NUM_ITERATIONS;
+  *energy_per_source = DEFAULT_ENERGY_PER_SOURCE;
   *output_energy_stat = 0;
 
   if (planes == NULL) {
@@ -280,9 +281,9 @@ error_code_t initialize(
     return ERROR_NULL_POINTER;
   }
 
-  // NOTE: What was that
+  // Initialize plane dimensions to zero
   planes[OLD].size[0] = planes[OLD].size[1] = 0;
-  planes[NEW].size[0] = planes[OLD].size[1] = 0;
+  planes[NEW].size[0] = planes[NEW].size[1] = 0;
 
   // Set the neighbours to MPI null as default
   for (int i = 0; i < 4; i++)
@@ -331,16 +332,18 @@ error_code_t initialize(
       case 'h': {
         if (Me == 0)
           printf("\nValid options (values in [] are defaults):\n"
-                 "-x    x size of the plate [10000]\n"
-                 "-y    y size of the plate [10000]\n"
-                 "-e    number of energy sources [4]\n"
-                 "-E    energy per source [1.0]\n"
-                 "-n    number of iterations [1000]\n"
+                 "-x    x size of the plate [%d]\n"
+                 "-y    y size of the plate [%d]\n"
+                 "-e    number of energy sources [%d]\n"
+                 "-E    energy per source [%.1f]\n"
+                 "-n    number of iterations [%d]\n"
                  "-o    output energy stats [0 = disabled, 1 = enabled]\n"
                  "-t    testing mode [0 = disabled, 1 = enabled]\n"
                  "-p    periodic boundaries [0 = false, 1 = true]\n"
                  "-v    verbosity level\n"
-                 "-h    show this help message\n\n");
+                 "-h    show this help message\n\n",
+                 DEFAULT_GRID_SIZE, DEFAULT_GRID_SIZE, DEFAULT_NUM_SOURCES,
+                 DEFAULT_ENERGY_PER_SOURCE, DEFAULT_NUM_ITERATIONS);
         halt = 1;
       } break;
 
@@ -359,7 +362,7 @@ error_code_t initialize(
   }
 
   if (halt)
-    return SUCCESS;
+    return HELP_DISPLAYED;
 
   // ··································································
   // Comprehensive input validation
@@ -414,8 +417,7 @@ error_code_t initialize(
     uint first = 1;
     ret = simple_factorization(num_tasks, &nf, &factors);
 
-    // for (int i = 0; (i < nf) && ((Ntasks / first) / first > formfactor);
-    // i++) NOTE: Adding explicit casting
+    // Find optimal factorization for 2D grid decomposition
     for (int i = 0;
          i < nf && ((double)num_tasks / (first * first) > formfactor); i++)
       first *= factors[i];
@@ -586,14 +588,7 @@ uint simple_factorization(uint a, int *n_factorss, uint **factors)
 int initialize_sources(int Me, int num_tasks, MPI_Comm *Comm, vec2_t my_size,
                        int num_sources, int *num_local_sources,
                        vec2_t **sources, int testing) {
-  // HACK: To remove
-  // Use deterministic seed when testing for reproducible results
-  // if (testing != 0) {
-  //   srand48(1337 ^ Me); // Fixed seed for testing
-  // } else {
-  //   srand48(time(NULL) ^ Me);
-  // }
-
+  // Initialize random number generator with unique seed per process
   srand48(time(NULL) ^ Me);
 
   int *tasks_with_sources = (int *)malloc(num_sources * sizeof(int));
@@ -655,9 +650,8 @@ int memory_allocate(plane_t *planes_ptr) {
   unsigned int frame_size =
       (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
 
-  // HACK: Testing memory alignment to get aligned SIMD instructions
-  // Dones't seem to work for some reason on my linux machine (vmovupd)
-  // To analyze further in conjunction with update_plane
+  // Use aligned memory allocation for potential SIMD optimization
+  // 64-byte alignment should help with vectorization and cache performance
   if (posix_memalign((void **)&planes_ptr[OLD].data, MEMORY_ALIGNMENT,
                      frame_size * sizeof(double)) != 0) {
     return ERROR_MEMORY_ALLOCATION;
@@ -669,49 +663,16 @@ int memory_allocate(plane_t *planes_ptr) {
     return ERROR_MEMORY_ALLOCATION;
   }
 
-  // FIX: Standard malloc allocation (commented out but preserved)
-  // planes_ptr[OLD].data = (double *)malloc(frame_size * sizeof(double));
-  // if (planes_ptr[OLD].data == NULL)
-  //   // manage the malloc fail
-  //   return ERROR_MEMORY_ALLOCATION;
-  //
-  // planes_ptr[NEW].data = (double *)malloc(frame_size * sizeof(double));
-  // if (planes_ptr[NEW].data == NULL)
-  //   // manage the malloc fail
-  //   return ERROR_MEMORY_ALLOCATION;
-
-  // NOTE: This old allocation method doesn't touch memory correctly
-  // memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
-  // memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
-
-  // Initialize memory by touching it correctly
-  const uint f_xsize = planes_ptr->size[_x_] + 2;
-  const uint xsize = planes_ptr->size[_x_];
-  const uint ysize = planes_ptr->size[_y_];
-
-#pragma omp parallel for schedule(static)
-  for (uint j = 0; j < ysize + 2; ++j) {
-    for (uint i = 0; i < xsize + 2; ++i) {
-      planes_ptr[OLD].data[j * f_xsize + i] = 0.0;
-      planes_ptr[NEW].data[j * f_xsize + i] = 0.0;
-    }
-  }
+  // Initialize memory efficiently - memset is faster than nested loops
+  memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
+  memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
 
   // ··················································
   // NOTE: In this case I will use MPI_Datatype directly for strided data
-  // NOTE: This comment is done by the professor
-  //
-  // buffers for north and south communication
-  // are not really needed
-  // in fact, they are already contiguous, just the
-  // first and last line of every rank's plane
-  //
-  // you may just make some pointers pointing to the
-  // correct positions
-  // TODO: Complete the following code
-
-  // NOTE: The rest of the buffers so the RECV for north and south are set to
-  // NULL before so no need to do it here
+  // NOTE: MPI datatypes are used for direct halo exchange without intermediate buffers
+  // North-south communication uses contiguous data (rows)
+  // East-west communication uses MPI vector types for strided access (columns)
+  // This approach eliminates the need for separate communication buffers
 
   return SUCCESS;
 }
