@@ -23,7 +23,6 @@ int main(int argc, char **argv) {
   {
     int level_obtained;
 
-    // TODO: change MPI_FUNNELED if appropriate
     // NOTE: MPI_THREAD_MULTIPLE: Multiple threads may call MPI at any time
     // without restrictions. (Might be useful)
     MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &level_obtained);
@@ -136,37 +135,10 @@ int main(int argc, char **argv) {
     /* --- ADDITIONAL COMMUNICATION PHASE --- */
     t_comm_start = MPI_Wtime();
 
-    // HACK: To review
     // NOTE: I could switch this with MPI_Waitsome and then start with the
-    // border I have but I don't think this is the biggest performance killer
-    // currently
-    //
-    // exchange_halos(requests, plane, ...);
-    // update_plane_inner(plane, ...);   // do interior first
-    //
-    // int outcount, indices[8];
-    // MPI_Status statuses[8];
-    // int completed[8] = {0};  // track which halos arrived
-    //
-    // while (true) {
-    //     MPI_Waitsome(8, requests, &outcount, indices, statuses);
-    //     if (outcount == MPI_UNDEFINED) break; // all done
-    //
-    //     for (int k = 0; k < outcount; k++) {
-    //         int idx = indices[k];
-    //         completed[idx] = 1;
-    //
-    //         // process border as soon as recv is ready
-    //         switch (idx) {
-    //             case 0: update_north_border(plane,...); break;
-    //             case 1: update_south_border(plane,...); break;
-    //             case 2: update_west_border(plane,...);  break;
-    //             case 3: update_east_border(plane,...);  break;
-    //             // indices 4-7 are sends; nothing to compute after those
-    //         }
-    //     }
-    // }
-    //
+    // border I that are obtained from the communication and then keep doing it
+    // until I compute all of them. But I don't think this is the biggest
+    // performance killer currently thus I will not implement it
     MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
     comm_times[iter] += MPI_Wtime() - t_comm_start;
     /* --------------------------------------  */
@@ -439,8 +411,6 @@ error_code_t initialize(
     uint first = 1;
     ret = simple_factorization(num_tasks, &nf, &factors);
 
-    // for (int i = 0; (i < nf) && ((Ntasks / first) / first > formfactor);
-    // i++) NOTE: Adding explicit casting
     for (int i = 0;
          i < nf && ((double)num_tasks / (first * first) > formfactor); i++)
       first *= factors[i];
@@ -611,16 +581,7 @@ uint simple_factorization(uint a, int *n_factorss, uint **factors)
 int initialize_sources(int Me, int num_tasks, MPI_Comm *Comm, vec2_t my_size,
                        int num_sources, int *num_local_sources,
                        vec2_t **sources, int testing) {
-  // HACK: To remove
-  // Use deterministic seed when testing for reproducible results
-  // if (testing != 0) {
-  //   srand48(1337 ^ Me); // Fixed seed for testing
-  // } else {
-  //   srand48(time(NULL) ^ Me);
-  // }
-
   srand48(time(NULL) ^ Me);
-
   int *tasks_with_sources = (int *)malloc(num_sources * sizeof(int));
 
   if (Me == 0) {
@@ -681,8 +642,7 @@ int memory_allocate(plane_t *planes_ptr) {
       (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
 
   // HACK: Testing memory alignment to get aligned SIMD instructions
-  // Dones't seem to work for some reason on my linux machine (vmovupd)
-  // To analyze further in conjunction with update_plane
+  // Dones't seem  I still get a (vmovupd)
   if (posix_memalign((void **)&planes_ptr[OLD].data, MEMORY_ALIGNMENT,
                      frame_size * sizeof(double)) != 0) {
     return ERROR_MEMORY_ALLOCATION;
@@ -724,19 +684,7 @@ int memory_allocate(plane_t *planes_ptr) {
 
   // ··················································
   // NOTE: In this case I will use MPI_Datatype directly for strided data
-  // NOTE: This comment is done by the professor
-  //
-  // buffers for north and south communication
-  // are not really needed
-  // in fact, they are already contiguous, just the
-  // first and last line of every rank's plane
-  //
-  // you may just make some pointers pointing to the
-  // correct positions
-  // TODO: Complete the following code
-
-  // NOTE: The rest of the buffers so the RECV for north and south are set to
-  // NULL before so no need to do it here
+  // ··················································
 
   return SUCCESS;
 }
@@ -752,6 +700,7 @@ error_code_t memory_release(plane_t *planes_ptr, MPI_Datatype *north_south_type,
       free(planes_ptr[NEW].data);
   }
 
+  // Free also the custom types
   MPI_Type_free(north_south_type);
   MPI_Type_free(east_west_type);
 
@@ -760,14 +709,12 @@ error_code_t memory_release(plane_t *planes_ptr, MPI_Datatype *north_south_type,
 
 error_code_t output_energy_stat(int step, plane_t *plane_ptr, double budget,
                                 int Me, MPI_Comm *Comm) {
-  // Set initial energy
   double system_energy = 0;
   double tot_system_energy = 0;
   // Every rank compute its total energy for the patch using parallel reduction
   get_total_energy(plane_ptr, &system_energy);
 
   // Reduce by patch to get the final energy
-  // NOTE: To review actually
   MPI_Reduce(&system_energy, &tot_system_energy, 1, MPI_DOUBLE, MPI_SUM, 0,
              *Comm);
 
