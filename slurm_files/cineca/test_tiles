@@ -6,7 +6,7 @@
 ##SBATCH --exclusive
 #SBATCH --partition=dcgp_usr_prod
 #SBATCH -A uTS25_Tornator_0
-#SBATCH -t 00:00:30
+#SBATCH -t 00:00:20
 #SBATCH --job-name=stencil_testing
 
 # Set the executable name
@@ -24,7 +24,7 @@ EXEC=./stencil_parallel
 # =======================================================
 # Set OpenMP environment variables
 # export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
-export OMP_NUM_THREADS=8
+export OMP_NUM_THREADS=4
 export OMP_PLACES=cores
 # export OMP_PROC_BIND=spread
 export OMP_PROC_BIND=close
@@ -35,7 +35,7 @@ TOTAL_MPI_TASKS=${SLURM_NTASKS}
 
 # Define the arguments for the executable
 # A medium-sized grid suitable for a single-node run
-ARGS="-x 10000 -y 10000 -n 50 -o 0"
+ARGS="-x 20000 -y 20000 -n 20 -o 0"
 
 # Print run information
 echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
@@ -45,5 +45,6 @@ echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 make MODE=parallel
 
 # Run the code using mpirun
-vtune -collect memory-access $EXEC $ARGS > ${OMP_NUM_THREADS}.log
+perf stat -d -d -e instructions,cycles,cache-references,cache-misses,dTLB-loads,dTLB-load-misses,iTLB-loads,iTLB-load-misses -a $EXEC $ARGS > ${OMP_NUM_THREADS}_no_store.log
+
 make clean

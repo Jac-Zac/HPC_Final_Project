@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
 
     /* --------------------------------------------------------------------- */
 
-    /* --- COMMUNICATION PHASE --- */
+    /* --- COMMUNICATION PHASE 1 --- */
     t_comm_start = MPI_Wtime();
     error_code_t ret =
         exchange_halos(&planes[current], neighbours, &my_COMM_WORLD, requests,
@@ -123,7 +123,7 @@ int main(int argc, char **argv) {
     comm_times[iter] = MPI_Wtime() - t_comm_start;
     /* --------------------------------------  */
 
-    /* --- COMPUTATION PHASE --- */
+    /* --- COMPUTATION PHASE 1 --- */
     t_comp_start = MPI_Wtime();
 
     // update inner part of the grid
@@ -132,7 +132,7 @@ int main(int argc, char **argv) {
     comp_times[iter] = MPI_Wtime() - t_comp_start;
     /* ------------------------- */
 
-    /* --- ADDITIONAL COMMUNICATION PHASE --- */
+    /* --- COMMUNICATION PHASE 2 --- */
     t_comm_start = MPI_Wtime();
 
     // NOTE: I could switch this with MPI_Waitsome and then start with the
@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
     comm_times[iter] += MPI_Wtime() - t_comm_start;
     /* --------------------------------------  */
 
-    /* --- COMPUTATION PHASE --- */
+    /* --- COMPUTATION PHASE 2 --- */
     t_comp_start = MPI_Wtime();
     update_plane_borders(periodic, mpi_tasks_grid, &planes[current],
                          &planes[!current]);
