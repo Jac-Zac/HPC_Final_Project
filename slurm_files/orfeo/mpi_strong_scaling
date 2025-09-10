@@ -3,7 +3,7 @@
 #SBATCH --partition=GENOA
 #SBATCH --mem=0G
 #SBATCH --nodes=1                  # single node
-#SBATCH --ntasks-per-node=2        # adjust if needed
+#SBATCH --ntasks-per-node=3        # adjust if needed
 #SBATCH --cpus-per-task=8          # 1 thread per NUMA region (8 NUMA domains on EPYC)
 #SBATCH --time=00:01:00
 #SBATCH --exclusive

@@ -45,6 +45,8 @@ typedef enum {
 
 typedef uint vec2_t[2];
 
+typedef double *restrict buffers_t[4];
+
 typedef struct {
   // restrict makes sure that the pointers are the only references
   // to the memory they point to
@@ -55,18 +57,27 @@ typedef struct {
 extern void inject_energy(const int, const int, const vec2_t *, const double,
                           plane_t *, const vec2_t);
 
+extern void fill_send_buffers(buffers_t buffers[2], plane_t *plane);
+
+extern error_code_t exchange_halos(buffers_t buffers[2], vec2_t size,
+                                   int *neighbours, MPI_Comm *Comm,
+                                   MPI_Request requests[8]);
+
+extern void copy_received_halos(buffers_t buffers[2], plane_t *plane,
+                                int *neighbours);
+
 extern void get_total_energy(plane_t *, double *);
 
 extern error_code_t initialize(MPI_Comm *, int, int, int, char **, vec2_t *,
                                vec2_t *, int *, int *, int *, int *, int *,
-                               int *, vec2_t **, double *, plane_t *);
+                               int *, vec2_t **, double *, plane_t *,
+                               buffers_t *);
 
-extern error_code_t exchange_halos(plane_t *plane, int *neighbours,
-                                   MPI_Comm *Comm, MPI_Request requests[8],
-                                   MPI_Datatype north_south_type,
-                                   MPI_Datatype east_west_type);
+extern error_code_t exchange_halos(buffers_t buffers[2], vec2_t size,
+                                   int *neighbours, MPI_Comm *Comm,
+                                   MPI_Request requests[8]);
 
-error_code_t memory_release(plane_t *, MPI_Datatype *, MPI_Datatype *);
+error_code_t memory_release(plane_t *, buffers_t *);
 
 error_code_t output_energy_stat(int, plane_t *, double, int, MPI_Comm *);
 
@@ -112,59 +123,86 @@ inline void inject_energy(const int periodic, const int num_sources,
 #undef IDX
 }
 
-extern error_code_t exchange_halos(plane_t *plane, int *neighbours,
-                                   MPI_Comm *Comm, MPI_Request requests[8],
-                                   MPI_Datatype north_south_type,
-                                   MPI_Datatype east_west_type) {
-  int rc = MPI_SUCCESS; // Accumulate MPI errors with OR to check all at once
-
+void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
   const uint size_x = plane->size[_x_];
   const uint size_y = plane->size[_y_];
   const uint stride = size_x + 2;
 
-  // Send addresses (point to internal data that will be sent to neighbors)
-  // First element of top internal row (skip halo)
-  double *send_north = &plane->data[stride + 1];
-  double *send_south = &plane->data[size_y * stride + 1];
-  double *send_west = &plane->data[stride + 1];
-  double *send_east = &plane->data[stride + size_x];
+  // NOTE: For north and south we can copy continues memory directly starting
+  // from the correct location
 
-  // Receive addresses (point to halo locations where data will be stored)
-  // Top halo row (ghost cells for north neighbor)
-  double *recv_north = &plane->data[1];
-  double *recv_south = &plane->data[(size_y + 1) * stride + 1];
-  double *recv_west = &plane->data[stride];
-  double *recv_east = &plane->data[stride + size_x + 1];
+  // Instead of memcpy:
+  buffers[SEND][NORTH] = &plane->data[1 * stride + 1];
+  buffers[SEND][SOUTH] = &plane->data[size_y * stride + 1];
 
-  // NOTE: count = 1 because we send the entire pre-committed datatype
-  // NOTE: MPI automatically handles sends/receives to MPI_PROC_NULL as no-ops
-  // NOTE: Keep the (receive, send) order we would use for blocking
-  rc |= MPI_Irecv(recv_south, 1, north_south_type, neighbours[SOUTH], NORTH,
-                  *Comm, &requests[0]);
-  rc |= MPI_Isend(send_north, 1, north_south_type, neighbours[NORTH], NORTH,
-                  *Comm, &requests[1]);
+  buffers[RECV][NORTH] = &plane->data[0 * stride + 1];
+  buffers[RECV][SOUTH] = &plane->data[(size_y + 1) * stride + 1];
 
-  rc |= MPI_Irecv(recv_north, 1, north_south_type, neighbours[NORTH], SOUTH,
-                  *Comm, &requests[2]);
-  rc |= MPI_Isend(send_south, 1, north_south_type, neighbours[SOUTH], SOUTH,
-                  *Comm, &requests[3]);
+  // Fill the EAST-WEST buffers
+  for (uint j = 0; j < size_y; j++) {
+    buffers[SEND][WEST][j] = plane->data[(j + 1) * stride + 1];
+  }
+  for (uint j = 0; j < size_y; j++) {
+    buffers[SEND][EAST][j] = plane->data[(j + 1) * stride + size_x];
+  }
+}
+
+error_code_t exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
+                            MPI_Comm *Comm, MPI_Request requests[8]) {
+  int rc = MPI_SUCCESS; // Accumulate MPI errors with OR to check all at once
+
+  // NOTE: Keep the receive first send after order we would use for blocking
+  // version which avoid deadlocks
+
+  // NORTH-SOUTH exchanges, also making an or with the return value for later
+  rc |= MPI_Irecv(buffers[RECV][SOUTH], size[_x_], MPI_DOUBLE,
+                  neighbours[SOUTH], NORTH, *Comm, &requests[0]);
+  rc |= MPI_Isend(buffers[SEND][NORTH], size[_x_], MPI_DOUBLE,
+                  neighbours[NORTH], NORTH, *Comm, &requests[1]);
+
+  rc |= MPI_Irecv(buffers[RECV][NORTH], size[_x_], MPI_DOUBLE,
+                  neighbours[NORTH], SOUTH, *Comm, &requests[2]);
+  rc |= MPI_Isend(buffers[SEND][SOUTH], size[_x_], MPI_DOUBLE,
+                  neighbours[SOUTH], SOUTH, *Comm, &requests[3]);
 
   // EAST-WEST exchanges
-  rc |= MPI_Irecv(recv_west, 1, east_west_type, neighbours[WEST], EAST, *Comm,
-                  &requests[4]);
-  rc |= MPI_Isend(send_east, 1, east_west_type, neighbours[EAST], EAST, *Comm,
-                  &requests[5]);
+  rc |= MPI_Irecv(buffers[RECV][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
+                  EAST, *Comm, &requests[4]);
+  rc |= MPI_Isend(buffers[SEND][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
+                  EAST, *Comm, &requests[5]);
 
-  rc |= MPI_Irecv(recv_east, 1, east_west_type, neighbours[EAST], WEST, *Comm,
-                  &requests[6]);
-  rc |= MPI_Isend(send_west, 1, east_west_type, neighbours[WEST], WEST, *Comm,
-                  &requests[7]);
+  rc |= MPI_Irecv(buffers[RECV][EAST], size[_y_], MPI_DOUBLE, neighbours[EAST],
+                  WEST, *Comm, &requests[6]);
+  rc |= MPI_Isend(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
+                  WEST, *Comm, &requests[7]);
 
+  // Single check at the end
   if (rc != MPI_SUCCESS) {
     return ERROR_MPI_FAILURE;
   }
 
   return SUCCESS;
+}
+
+void copy_received_halos(buffers_t buffers[2], plane_t *plane,
+                         int *neighbours) {
+  const uint size_y = plane->size[_y_];
+  const uint size_x = plane->size[_x_];
+  const uint stride = size_x + 2;
+
+  // NORTH and SOUTH are already in place thanks to direct MPI_IRecv.
+  // We only need to unpack the non-contiguous columns.
+
+  if (neighbours[WEST] != MPI_PROC_NULL) {
+    for (uint j = 0; j < size_y; j++) {
+      plane->data[(j + 1) * stride + 0] = buffers[RECV][WEST][j];
+    }
+  }
+  if (neighbours[EAST] != MPI_PROC_NULL) {
+    for (uint j = 0; j < size_y; j++) {
+      plane->data[(j + 1) * stride + size_x + 1] = buffers[RECV][EAST][j];
+    }
+  }
 }
 
 inline void update_plane_inner(const plane_t *old_plane, plane_t *new_plane) {

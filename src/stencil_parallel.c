@@ -16,6 +16,7 @@ int main(int argc, char **argv) {
   double energy_per_source;
 
   plane_t planes[2];
+  buffers_t buffers[2];
 
   int output_energy_stats;
 
@@ -43,7 +44,7 @@ int main(int argc, char **argv) {
       initialize(&my_COMM_WORLD, rank, num_tasks, argc, argv, &global_grid_size,
                  &mpi_tasks_grid, &periodic, &output_energy_stats, neighbours,
                  &num_iterations, &num_sources, &num_sources_local,
-                 &sources_local, &energy_per_source, &planes[0]);
+                 &sources_local, &energy_per_source, &planes[0], &buffers[0]);
 
   if (ret) {
     printf("task %d is opting out with termination code %d\n", rank, ret);
@@ -68,33 +69,6 @@ int main(int argc, char **argv) {
 
   double total_start_time = MPI_Wtime();
 
-  // Define and commit custom MPI datatypes for efficient halo exchange
-  // Using MPI datatypes avoids explicit buffer copies and leverages MPI's
-  // optimized data movement for non-contiguous memory regions
-  int x_size = planes[OLD].size[_x_];
-  int y_size = planes[OLD].size[_y_];
-  MPI_Datatype north_south_type;
-  MPI_Datatype east_west_type;
-
-  // North-South exchanges: data is contiguous in memory (full rows)
-  MPI_Type_contiguous(x_size, MPI_DOUBLE, &north_south_type);
-
-  // East-West exchanges: data is non-contiguous (single column with stride)
-  // Use vector datatype to handle strided access pattern
-  int element_per_block = 1; // One element per block (single column)
-  int stride = x_size + 2;   // Total row width including halos
-  // https: // rookiehpc.org/mpi/docs/mpi_type_vector/index.html
-  MPI_Type_vector(y_size, element_per_block, stride, MPI_DOUBLE,
-                  &east_west_type);
-
-  ret = MPI_Type_commit(&north_south_type);
-  if (ret != MPI_SUCCESS)
-    return ret;
-
-  ret = MPI_Type_commit(&east_west_type);
-  if (ret != MPI_SUCCESS)
-    return ret;
-
   int current = OLD;
   for (int iter = 0; iter < num_iterations; ++iter) {
     double t_comm_start, t_comp_start;
@@ -109,9 +83,12 @@ int main(int argc, char **argv) {
 
     /* --- COMMUNICATION PHASE 1 --- */
     t_comm_start = MPI_Wtime();
-    error_code_t ret =
-        exchange_halos(&planes[current], neighbours, &my_COMM_WORLD, requests,
-                       north_south_type, east_west_type);
+
+    // Extract current boundary data into send buffers
+    fill_send_buffers(buffers, &planes[current]);
+
+    error_code_t ret = exchange_halos(buffers, planes[current].size, neighbours,
+                                      &my_COMM_WORLD, requests);
 
     // Return if unsuccessful
     if (ret != MPI_SUCCESS) {
@@ -140,7 +117,11 @@ int main(int argc, char **argv) {
     // until I compute all of them. But I don't think this is the biggest
     // performance killer currently thus I will not implement it
     MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
-    comm_times[iter] += MPI_Wtime() - t_comm_start;
+
+    // Copy the received halos data
+    copy_received_halos(buffers, &planes[current], neighbours);
+
+    comm_times[iter] = MPI_Wtime() - t_comm_start;
     /* --------------------------------------  */
 
     /* --- COMPUTATION PHASE 2 --- */
@@ -210,7 +191,7 @@ int main(int argc, char **argv) {
   if (comm_times != NULL) {
     free(comm_times);
   }
-  memory_release(planes, &north_south_type, &east_west_type);
+  memory_release(planes, buffers);
 
   MPI_Finalize();
   return SUCCESS;
@@ -233,7 +214,7 @@ uint simple_factorization(uint, int *, uint **);
 int initialize_sources(int, int, MPI_Comm *, uint[2], int, int *, vec2_t **,
                        int);
 
-int memory_allocate(plane_t *);
+int memory_allocate(buffers_t *, plane_t *);
 
 error_code_t initialize(
     MPI_Comm *Comm,         // the communicator
@@ -251,7 +232,7 @@ error_code_t initialize(
     int *num_sources,    // how many heat sources
     int *num_local_sources, vec2_t **local_sources,
     double *energy_per_source, // how much heat per source
-    plane_t *planes) {
+    plane_t *planes, buffers_t *buffers) {
   int halt = 0;
   int ret;
   int verbose = 0;
@@ -511,7 +492,7 @@ error_code_t initialize(
 
   // ··································································
   // allocate the needed memory
-  ret = memory_allocate(planes);
+  ret = memory_allocate(buffers, planes);
 
   if (ret != 0) {
     if (Me == 0)
@@ -627,11 +608,11 @@ int initialize_sources(int Me, int num_tasks, MPI_Comm *Comm, vec2_t my_size,
   return SUCCESS;
 }
 
-// NOTE: In the future I have to think carefully about the fact that if I want
-// to parallelize inside those patches the allocation should be done by the
-// threads to have a touch first policy perhaps
-int memory_allocate(plane_t *planes_ptr) {
+int memory_allocate(buffers_t *buffers_ptr, plane_t *planes_ptr) {
+
   if (planes_ptr == NULL)
+    return ERROR_NULL_POINTER;
+  if (buffers_ptr == NULL)
     return ERROR_NULL_POINTER;
 
   // ··················································
@@ -642,7 +623,6 @@ int memory_allocate(plane_t *planes_ptr) {
       (planes_ptr[OLD].size[_x_] + 2) * (planes_ptr[OLD].size[_y_] + 2);
 
   // HACK: Testing memory alignment to get aligned SIMD instructions
-  // Dones't seem  I still get a (vmovupd)
   if (posix_memalign((void **)&planes_ptr[OLD].data, MEMORY_ALIGNMENT,
                      frame_size * sizeof(double)) != 0) {
     return ERROR_MEMORY_ALLOCATION;
@@ -654,7 +634,7 @@ int memory_allocate(plane_t *planes_ptr) {
     return ERROR_MEMORY_ALLOCATION;
   }
 
-  // FIX: Standard malloc allocation (commented out but preserved)
+  // OLD: Standard malloc allocation (commented out but preserved)
   // planes_ptr[OLD].data = (double *)malloc(frame_size * sizeof(double));
   // if (planes_ptr[OLD].data == NULL)
   //   // manage the malloc fail
@@ -669,11 +649,11 @@ int memory_allocate(plane_t *planes_ptr) {
   // memset(planes_ptr[OLD].data, 0, frame_size * sizeof(double));
   // memset(planes_ptr[NEW].data, 0, frame_size * sizeof(double));
 
-  // Initialize memory by touching it correctly
   const uint f_xsize = planes_ptr->size[_x_] + 2;
   const uint xsize = planes_ptr->size[_x_];
   const uint ysize = planes_ptr->size[_y_];
 
+  // Initialize memory by touching it correctly
 #pragma omp parallel for schedule(static)
   for (uint j = 0; j < ysize + 2; ++j) {
     for (uint i = 0; i < xsize + 2; ++i) {
@@ -683,26 +663,61 @@ int memory_allocate(plane_t *planes_ptr) {
   }
 
   // ··················································
-  // NOTE: In this case I will use MPI_Datatype directly for strided data
+  // buffers for north and south communication are not really needed in fact,
+  // they are already contiguous, just the first and last line of every rank's
+  // plane you may just make some pointers pointing to the correct positions
+
+  uint size_x = planes_ptr[OLD].size[_x_];
+  uint size_y = planes_ptr[OLD].size[_y_];
+
+  buffers_ptr[SEND][NORTH] = &planes_ptr[OLD].data[1 * (size_x + 2) + 1];
+  buffers_ptr[SEND][SOUTH] = &planes_ptr[OLD].data[size_y * (size_x + 2) + 1];
+
+  // NOTE: The rest of the buffers so the RECV for north and south are set to
+  // NULL before so no need to do it here
+
+  // ··················································
+  buffers_ptr[SEND][WEST] =
+      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  buffers_ptr[RECV][WEST] =
+      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+
+  buffers_ptr[SEND][EAST] =
+      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
+  buffers_ptr[RECV][EAST] =
+      (double *)malloc(planes_ptr[OLD].size[_y_] * sizeof(double));
   // ··················································
 
   return SUCCESS;
 }
 
 // Release memory also for the buffers
-error_code_t memory_release(plane_t *planes_ptr, MPI_Datatype *north_south_type,
-                            MPI_Datatype *east_west_type) {
-  if (planes_ptr != NULL) {
-    if (planes_ptr[OLD].data != NULL)
-      free(planes_ptr[OLD].data);
+error_code_t memory_release(plane_t *planes, buffers_t *buffer_ptr) {
+  if (planes != NULL) {
+    if (planes[OLD].data != NULL)
+      free(planes[OLD].data);
 
-    if (planes_ptr[NEW].data != NULL)
-      free(planes_ptr[NEW].data);
+    if (planes[NEW].data != NULL)
+      free(planes[NEW].data);
   }
 
-  // Free also the custom types
-  MPI_Type_free(north_south_type);
-  MPI_Type_free(east_west_type);
+  // Free only EAST and WEST buffers (NORTH/SOUTH point to plane data)
+  // RECV buffers
+  if (buffer_ptr[RECV][WEST] != NULL) {
+    free(buffer_ptr[RECV][WEST]);
+  }
+
+  if (buffer_ptr[RECV][EAST] != NULL) {
+    free(buffer_ptr[RECV][EAST]);
+  }
+
+  // SEND buffers
+  if (buffer_ptr[SEND][WEST] != NULL) {
+    free(buffer_ptr[SEND][WEST]);
+  }
+  if (buffer_ptr[SEND][EAST] != NULL) {
+    free(buffer_ptr[SEND][EAST]);
+  }
 
   return SUCCESS;
 }
