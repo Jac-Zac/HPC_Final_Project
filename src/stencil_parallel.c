@@ -124,7 +124,7 @@ int main(int argc, char **argv) {
     // Copy the received halos data
     copy_received_halos(buffers, &planes[current], neighbours);
 
-    comm_times[iter] = MPI_Wtime() - t_comm_start;
+    comm_times[iter] += MPI_Wtime() - t_comm_start;
     /* --------------------------------------  */
 
     /* --- COMPUTATION PHASE 2 --- */
