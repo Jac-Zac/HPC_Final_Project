@@ -4,9 +4,9 @@
 #SBATCH --partition=dcgp_usr_prod
 #SBATCH --mem=0G
 #SBATCH --nodes=1                  # single node
-#SBATCH --ntasks-per-node=2        # adjust if needed
+#SBATCH --ntasks-per-node=3        # adjust if needed
 #SBATCH --cpus-per-task=8          # 1 thread per NUMA region (8 NUMA domains)
-#SBATCH --time=00:00:20
+#SBATCH --time=00:05:00
 #SBATCH --exclusive
 
 # --- Task number detection ---
@@ -14,7 +14,7 @@ TASKS=$(( SLURM_NTASKS_PER_NODE * SLURM_JOB_NUM_NODES ))
 
 # --- Configuration ---
 EXEC=./stencil_parallel
-ARGS="-x 25000 -y 25000 -n 20 -o 0"
+ARGS="-x 50000 -y 50000 -n 1000 -o 0"
 RESULTS_FILE=mpi_single_run.log
 
 # --- Environment Setup ---
@@ -102,9 +102,6 @@ generate_rankfile() {
     echo $rankfile_name
 }
 
-# --- Results File Header ---
-echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
-
 # Write header only if file does not exist
 if [ ! -f "$RESULTS_FILE" ]; then
     echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
@@ -120,7 +117,6 @@ OUTPUT=$(mktemp)
 # --- MPI Execution ---
 mpirun -np $TASKS \
        --rankfile $RANKFILE \
-       --display-map \
        --report-bindings \
        $EXEC $ARGS > $OUTPUT
 
