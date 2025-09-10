@@ -14,7 +14,7 @@ TASKS=$(( SLURM_NTASKS_PER_NODE * SLURM_JOB_NUM_NODES ))
 # --- Configuration ---
 EXEC=./stencil_parallel
 ARGS="-x 25000 -y 25000 -n 200 -o 0"
-RESULTS_FILE=mpi_single_run.txt
+RESULTS_FILE=mpi_single_run.log
 
 # --- Environment Setup ---
 module load openMPI/5.0.5
@@ -29,6 +29,7 @@ export OMP_PROC_BIND=spread
 export OMP_DISPLAY_AFFINITY=TRUE
 
 # --- Function to generate rankfile ---
+# This will put n_task for each numa domain and spread the cores evenly across the numa domain
 generate_rankfile() {
     local num_tasks=$1
     local rankfile_name="rankfile_${num_tasks}.txt"
@@ -43,17 +44,23 @@ generate_rankfile() {
 
     rank=0
     for ((task=0; task<num_tasks; task++)); do
-        node_index=$(( task / 2 ))
+        node_index=$(( task / (num_tasks / ${#NODE_ARR[@]} + 1) ))  # spread across nodes
         hostname=${NODE_ARR[$node_index]}
 
-        local offset=$(( task % 2 ))
+        # Compute stride to spread tasks across NUMA
+        stride=$(( NUMA_DOMAINS / num_tasks ))
+        if [ $stride -eq 0 ]; then stride=1; fi
+
         core_list=""
         for ((numa=0; numa<NUMA_DOMAINS; numa++)); do
-            core=$((numa * CORES_PER_NUMA + offset))
-            if [ $numa -eq 0 ]; then
-                core_list="$core"
-            else
-                core_list="$core_list,$core"
+            # pick cores with a step of stride
+            if (( numa % stride == task % stride )); then
+                core=$((numa * CORES_PER_NUMA))
+                if [ -z "$core_list" ]; then
+                    core_list="$core"
+                else
+                    core_list="$core_list,$core"
+                fi
             fi
         done
 

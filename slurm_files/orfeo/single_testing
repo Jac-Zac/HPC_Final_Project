@@ -34,7 +34,7 @@ echo "Running on a single node with ${TOTAL_MPI_TASKS} MPI tasks."
 echo "Each task uses ${OMP_NUM_THREADS} OpenMP threads."
 
 # Compiling with logging the serial version
-make MODE=parallel LOG=0
+make MODE=parallel
 
 # Run the code using mpirun
 mpirun -np ${TOTAL_MPI_TASKS} --bind-to none  ${EXEC} ${ARGS} > ${TOTAL_MPI_TASKS}_mpi_${OMP_NUM_THREADS}_threads.log

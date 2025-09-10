@@ -12,7 +12,7 @@
 EXEC=./stencil_parallel
 ARGS="-x 25000 -y 25000 -n 1000 -o 0"
 
-RESULTS_FILE=openmp_scaling_cineca.txt
+RESULTS_FILE=openmp_scaling_cineca.log
 echo "Threads,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
 # Load module

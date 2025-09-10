@@ -11,11 +11,11 @@
 EXEC=./stencil_parallel
 ARGS="-x 20000 -y 20000 -n 100 -o 0"
 
-RESULTS_FILE=openmp_scaling_epyc.txt
+RESULTS_FILE=openmp_scaling.log
 echo "Threads,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
 module load openMPI/5.0.5
-make MODE=parallel LOG=0
+make MODE=parallel
 
 # Scaling on powers of 2 up to 24 cores
 for THREADS in 1 2 4 6 8 16 32 64 128
