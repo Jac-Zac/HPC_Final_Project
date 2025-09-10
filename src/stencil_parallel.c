@@ -16,6 +16,9 @@ int main(int argc, char **argv) {
   double energy_per_source;
 
   plane_t planes[2];
+
+  // NOTE: using buffers instead of MPI vector datatype leads to better
+  // performance in communication, likely do to how MPI deals with strided data
   buffers_t buffers[2];
 
   int output_energy_stats;
