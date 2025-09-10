@@ -29,7 +29,6 @@ export OMP_PROC_BIND=spread
 export OMP_DISPLAY_AFFINITY=TRUE
 
 # --- Function to generate rankfile ---
-# This will put n_task for each numa domain and spread the cores evenly across the numa domain
 generate_rankfile() {
     local num_tasks=$1
     local rankfile_name="rankfile_${num_tasks}.txt"
@@ -44,23 +43,19 @@ generate_rankfile() {
 
     rank=0
     for ((task=0; task<num_tasks; task++)); do
-        node_index=$(( task / (num_tasks / ${#NODE_ARR[@]} + 1) ))  # spread across nodes
-        hostname=${NODE_ARR[$node_index]}
+        hostname=${NODE_ARR[0]}  # single node case
 
-        # Compute stride to spread tasks across NUMA
-        stride=$(( NUMA_DOMAINS / num_tasks ))
-        if [ $stride -eq 0 ]; then stride=1; fi
+        # Calculate stride and offset
+        stride=$(( CORES_PER_NUMA / num_tasks ))
+        offset=$(( task * stride ))
 
         core_list=""
         for ((numa=0; numa<NUMA_DOMAINS; numa++)); do
-            # pick cores with a step of stride
-            if (( numa % stride == task % stride )); then
-                core=$((numa * CORES_PER_NUMA))
-                if [ -z "$core_list" ]; then
-                    core_list="$core"
-                else
-                    core_list="$core_list,$core"
-                fi
+            core=$((offset + numa * CORES_PER_NUMA))
+            if [ -z "$core_list" ]; then
+                core_list="$core"
+            else
+                core_list="$core_list,$core"
             fi
         done
 
