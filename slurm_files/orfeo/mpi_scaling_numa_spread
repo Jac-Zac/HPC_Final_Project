@@ -1,120 +1,54 @@
 #!/bin/bash
 #SBATCH --job-name=stencil_mpi_scaling
-#SBATCH --partition=EPYC
+#SBATCH --partition=GENOA
 #SBATCH --mem=0G
-#SBATCH --nodes=3                  # request up to N nodes (adjust as needed)
-#SBATCH --ntasks-per-node=2        # 2 MPI tasks per node
-#SBATCH --cpus-per-task=8          # 1 thread per NUMA region (8 NUMA domains on EPYC)
-#SBATCH --time=00:01:00
 #SBATCH --exclusive
+#SBATCH --time=00:10:00
+#SBATCH --ntasks-per-node=2
+#SBATCH --cpus-per-task=8
+#SBATCH --array=0-1      # 6 jobs: index 0..5
+##SBATCH --array=0-5      # 6 jobs: index 0..5
 
-# --- Configuration ---
+# Node counts you want to test
+# NODE_COUNTS=(1 2 4 8 16 32)
+NODE_COUNTS=(1 2)
+NODES=${NODE_COUNTS[$SLURM_ARRAY_TASK_ID]}
+#SBATCH --nodes=${NODES}
+
+# --- Config ---
 EXEC=./stencil_parallel
 ARGS="-x 25000 -y 25000 -n 100 -o 0"
-RESULTS_FILE=mpi_scaling_numa_mapped.txt
+RESULTS_FILE="mpi_scaling_${NODES}nodes.txt"
 
-# --- Environment Setup ---
 module load openMPI/5.0.5
+make MODE=parallel
 
-echo "--- Compiling the application ---"
-make MODE=parallel LOG=0
-
-# --- OpenMP Settings ---
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export OMP_PLACES=cores
 export OMP_PROC_BIND=spread
-export OMP_DISPLAY_AFFINITY=TRUE
 
-# --- Function to generate rankfile across multiple nodes ---
-generate_rankfile() {
-    local num_tasks=$1
-    local rankfile_name="rankfile_${num_tasks}.txt"
+TASKS=$((NODES * 2))  # 2 MPI tasks per node
 
-    echo "# Rankfile for $num_tasks MPI tasks with NUMA-spanning cores" > $rankfile_name
+echo ">>> Running on $NODES node(s), $TASKS MPI tasks, ${OMP_NUM_THREADS} threads/task"
 
-    # Expand node list allocated by SLURM
-    NODELIST=$(scontrol show hostnames $SLURM_NODELIST)
-    NODE_ARR=($NODELIST)
-    NUM_NODES=${#NODE_ARR[@]}
+OUTPUT=$(mktemp)
 
-    # Hardware topology assumptions
-    local NUMA_DOMAINS=8       # 8 NUMA domains per node
-    local CORES_PER_NUMA=8    # 16 cores per NUMA domain
+mpirun -np $TASKS \
+       --map-by ppr:2:node \
+       --bind-to core \
+       --display-map \
+       --report-bindings \
+       $EXEC $ARGS > $OUTPUT
 
-    rank=0
-    for ((task=0; task<num_tasks; task++)); do
-        # Which node does this task go to? (2 tasks per node)
-        node_index=$(( task / 2 ))
-        hostname=${NODE_ARR[$node_index]}
+TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
+MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
+MAX_COMM=$(grep "Max communication time" $OUTPUT | awk '{print $6}')
+ENERGY_TIME=$(grep "Total energy computaton time" $OUTPUT | awk '{print $5}')
 
-        # Offset inside each NUMA domain (rank 0 gets core 0, rank 1 gets core 1, etc.)
-        local offset=$(( task % 2 ))
-
-        # Slot assignment: pick one core per NUMA domain with rank-specific offset
-        core_list=""
-        for ((numa=0; numa<NUMA_DOMAINS; numa++)); do
-            core=$((numa * CORES_PER_NUMA + offset))
-            if [ $numa -eq 0 ]; then
-                core_list="$core"
-            else
-                core_list="$core_list,$core"
-            fi
-        done
-
-        echo "rank $rank=${hostname} slot=$core_list" >> $rankfile_name
-        rank=$((rank+1))
-    done
-
-    echo $rankfile_name
-}
-
-# --- Results File Header ---
-echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
-
-# --- Scaling Loop ---
-# Adjust the list of task counts as you like (2 per node, so 2, 4, 6, 8,...)
-for TASKS in 2 4 6
-do
-    echo ">>> Running with $TASKS MPI tasks, ${OMP_NUM_THREADS} threads per task"
-
-    # Generate appropriate rankfile for this number of tasks
-    RANKFILE=$(generate_rankfile $TASKS)
-
-    echo "Generated rankfile: $RANKFILE"
-    cat $RANKFILE
-    echo "---"
-
-    OUTPUT=$(mktemp)
-
-    # --- MPI Execution with rankfile ---
-    mpirun -np $TASKS \
-           --map-by rankfile:file=$RANKFILE \
-           --bind-to core \
-           --display-map \
-           --report-bindings \
-           $EXEC $ARGS > $OUTPUT
-
-    # --- Data Extraction ---
-    TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
-    MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
-    MAX_COMM=$(grep "Max communication time" $OUTPUT | awk '{print $6}')
-    ENERGY_TIME=$(grep "Total energy computaton time" $OUTPUT | awk '{print $5}')
-
-    # --- Save Results ---
-    if [ -n "$TOTAL_TIME" ]; then
-        echo "$TASKS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
-        echo "Results: Tasks=$TASKS, Total=$TOTAL_TIME, Comp=$MAX_COMP, Comm=$MAX_COMM, Energy=$ENERGY_TIME"
-    else
-        echo "$TASKS,ERROR,ERROR,ERROR,ERROR" >> $RESULTS_FILE
-        echo "Error parsing output for $TASKS tasks. Check the temporary output file: $OUTPUT"
-        continue
-    fi
-
-    rm $OUTPUT
-    echo "---"
-done
-
-echo "Scaling test complete. Results are in $RESULTS_FILE"
-
-# Clean up rankfiles
-rm -f rankfile_*.txt
+if [ -n "$TOTAL_TIME" ]; then
+    echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
+    echo "$TASKS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
+    echo "Results saved to $RESULTS_FILE"
+else
+    echo "Error parsing output for $TASKS tasks. See $OUTPUT"
+fi
