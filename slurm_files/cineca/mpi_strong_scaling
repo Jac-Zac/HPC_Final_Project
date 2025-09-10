@@ -1,0 +1,107 @@
+#!/bin/bash
+#!/bin/bash
+#SBATCH --job-name=strong_scaling_stencil
+#SBATCH -A uTS25_Tornator_0
+#SBATCH --partition=dcgp_usr_prod
+#SBATCH --mem=0G
+#SBATCH --nodes=1                  # single node
+#SBATCH --ntasks-per-node=2        # adjust if needed
+#SBATCH --cpus-per-task=8          # 1 thread per NUMA region (8 NUMA domains)
+#SBATCH --time=00:05:00
+#SBATCH --exclusive
+
+# --- Task number detection ---
+TASKS=$(( SLURM_NTASKS_PER_NODE * SLURM_JOB_NUM_NODES ))
+
+# --- Configuration ---
+EXEC=./stencil_parallel
+ARGS="-x 25000 -y 25000 -n 1000 -o 0"
+RESULTS_FILE=mpi_single_run.txt
+
+# --- Environment Setup ---
+module load openMPI/5.0.5
+
+echo "--- Compiling the application ---"
+make MODE=parallel LOG=0
+
+# --- OpenMP Settings ---
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_PLACES=cores
+export OMP_PROC_BIND=spread
+export OMP_DISPLAY_AFFINITY=TRUE
+
+# --- Function to generate rankfile ---
+generate_rankfile() {
+    local num_tasks=$1
+    local rankfile_name="rankfile_${num_tasks}.txt"
+
+    echo "# Rankfile for $num_tasks MPI tasks with NUMA-spanning cores" > $rankfile_name
+
+    NODELIST=$(scontrol show hostnames $SLURM_NODELIST)
+    NODE_ARR=($NODELIST)
+
+    local NUMA_DOMAINS=8
+    local CORES_PER_NUMA=8
+
+    rank=0
+    for ((task=0; task<num_tasks; task++)); do
+        node_index=$(( task / 2 ))
+        hostname=${NODE_ARR[$node_index]}
+
+        local offset=$(( task % 2 ))
+        core_list=""
+        for ((numa=0; numa<NUMA_DOMAINS; numa++)); do
+            core=$((numa * CORES_PER_NUMA + offset))
+            if [ $numa -eq 0 ]; then
+                core_list="$core"
+            else
+                core_list="$core_list,$core"
+            fi
+        done
+
+        echo "rank $rank=${hostname} slot=$core_list" >> $rankfile_name
+        rank=$((rank+1))
+    done
+
+    echo $rankfile_name
+}
+
+# --- Results File Header ---
+echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
+
+echo ">>> Running with $TASKS MPI tasks, ${OMP_NUM_THREADS} threads per task"
+
+RANKFILE=$(generate_rankfile $TASKS)
+echo "Generated rankfile: $RANKFILE"
+cat $RANKFILE
+echo "---"
+
+OUTPUT=$(mktemp)
+
+# --- MPI Execution ---
+mpirun -np $TASKS \
+       --map-by rankfile:file=$RANKFILE \
+       --bind-to core \
+       --display-map \
+       --report-bindings \
+       $EXEC $ARGS > $OUTPUT
+
+# --- Data Extraction ---
+TOTAL_TIME=$(grep "Total time" $OUTPUT | awk '{print $3}')
+MAX_COMP=$(grep "Max computation time" $OUTPUT | awk '{print $6}')
+MAX_COMM=$(grep "Max communication time" $OUTPUT | awk '{print $6}')
+ENERGY_TIME=$(grep "Total energy computaton time" $OUTPUT | awk '{print $5}')
+
+# --- Save Results ---
+if [ -n "$TOTAL_TIME" ]; then
+    echo "$TASKS,$TOTAL_TIME,$MAX_COMP,$MAX_COMM,$ENERGY_TIME" >> $RESULTS_FILE
+    echo "Results: Tasks=$TASKS, Total=$TOTAL_TIME, Comp=$MAX_COMP, Comm=$MAX_COMM, Energy=$ENERGY_TIME"
+else
+    echo "$TASKS,ERROR,ERROR,ERROR,ERROR" >> $RESULTS_FILE
+    echo "Error parsing output. Check temporary output file: $OUTPUT"
+fi
+
+rm $OUTPUT
+rm -f rankfile_*.txt
+
+echo "Single run complete. Results are in $RESULTS_FILE"
