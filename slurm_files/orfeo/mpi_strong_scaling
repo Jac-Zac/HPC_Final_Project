@@ -29,13 +29,11 @@ export OMP_PROC_BIND=spread
 export OMP_DISPLAY_AFFINITY=TRUE
 
 # --- Function to generate rankfile ---
-# --- Function to generate a rankfile with custom task spreading ---
 generate_rankfile() {
-    local total_tasks=$1
-    local tasks_per_node=$2
-    local rankfile_name="rankfile_${total_tasks}.txt"
+    local num_tasks=$1
+    local rankfile_name="rankfile_${num_tasks}.txt"
 
-    echo "# Rankfile for $total_tasks tasks ($tasks_per_node per node) with custom spreading" > $rankfile_name
+    echo "# Rankfile for $num_tasks MPI tasks with NUMA-spanning cores" > $rankfile_name
 
     NODELIST=$(scontrol show hostnames $SLURM_NODELIST)
     NODE_ARR=($NODELIST)
@@ -43,46 +41,57 @@ generate_rankfile() {
     local NUMA_DOMAINS=8
     local CORES_PER_NUMA=8
 
-    # --- Define your custom spreading offsets here ---
-    local offsets
-    case "$tasks_per_node" in
-        1)
-            offsets=(0)
-            ;;
-        2)
-            # Max spread: place tasks at the beginning and end of each CCD/NUMA domain
-            offsets=(0 7)
-            ;;
-        3)
-            # Spread out as requested
-            offsets=(0 4 7)
-            ;;
-        4)
-            # Spread evenly across the 8 cores of a CCD/NUMA domain
-            offsets=(0 2 4 6)
-            ;;
-        *)
-            echo "ERROR: Unsupported number of tasks per node for custom spreading: $tasks_per_node"
-            echo "Please define a mapping for it in the script's case statement."
-            exit 1
-            ;;
-    esac
-
     rank=0
-    for ((task=0; task<total_tasks; task++)); do
-        node_index=$(( task / tasks_per_node ))
+    for ((task=0; task<num_tasks; task++)); do
+        node_index=$(( task / SLURM_NTASKS_PER_NODE ))
         hostname=${NODE_ARR[$node_index]}
 
-        # This is the task's index *on its specific node* (0, 1, 2, etc.)
-        local local_task_idx=$(( task % tasks_per_node ))
-        
-        # Get the custom starting core from our predefined list
-        local offset=${offsets[$local_task_idx]}
-
+        local task_on_node=$(( task % SLURM_NTASKS_PER_NODE ))
         core_list=""
         for ((numa=0; numa<NUMA_DOMAINS; numa++)); do
-            core=$((numa * CORES_PER_NUMA + offset))
-            core_list="${core_list:+$core_list,}$core"
+            # Calculate even distribution within NUMA domain
+            # For NUMA domain with CORES_PER_NUMA cores (0 to 7), distribute tasks evenly
+            local core_offset
+            if [ $SLURM_NTASKS_PER_NODE -eq 1 ]; then
+                # Single task gets first core of each NUMA
+                core_offset=0
+            elif [ $SLURM_NTASKS_PER_NODE -eq 2 ]; then
+                # 2 tasks: task 0 gets core 0, task 1 gets core 7
+                if [ $task_on_node -eq 0 ]; then
+                    core_offset=0
+                else
+                    core_offset=$((CORES_PER_NUMA - 1))
+                fi
+            else
+                # For 3 or more tasks, distribute evenly
+                # Calculate spacing between tasks
+                local spacing=$(( CORES_PER_NUMA / SLURM_NTASKS_PER_NODE ))
+                core_offset=$(( task_on_node * spacing ))
+                
+                # If spacing doesn't divide evenly, adjust for better distribution
+                if [ $spacing -eq 0 ]; then
+                    # More tasks than cores per NUMA, just use modulo
+                    core_offset=$(( task_on_node % CORES_PER_NUMA ))
+                elif [ $SLURM_NTASKS_PER_NODE -eq 3 ]; then
+                    # Special case for 3 tasks in 8 cores: spread them at 0, 3, 6
+                    case $task_on_node in
+                        0) core_offset=0 ;;
+                        1) core_offset=3 ;;
+                        2) core_offset=6 ;;
+                    esac
+                elif [ $SLURM_NTASKS_PER_NODE -eq 4 ]; then
+                    # 4 tasks: 0, 2, 4, 6
+                    core_offset=$(( task_on_node * 2 ))
+                fi
+            fi
+            
+            local core=$((numa * CORES_PER_NUMA + core_offset))
+            
+            if [ $numa -eq 0 ]; then
+                core_list="$core"
+            else
+                core_list="$core_list,$core"
+            fi
         done
 
         echo "rank $rank=${hostname} slot=$core_list" >> $rankfile_name
@@ -95,7 +104,10 @@ generate_rankfile() {
 # --- Results File Header ---
 echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
 
-echo ">>> Running with $TASKS MPI tasks, ${OMP_NUM_THREADS} threads per task"
+# Write header only if file does not exist
+if [ ! -f "$RESULTS_FILE" ]; then
+    echo "Tasks,TotalTime,MaxCompTime,MaxCommTime,EnergyCompTime" > $RESULTS_FILE
+fi
 
 RANKFILE=$(generate_rankfile $TASKS)
 echo "Generated rankfile: $RANKFILE"
@@ -107,7 +119,6 @@ OUTPUT=$(mktemp)
 # --- MPI Execution ---
 mpirun -np $TASKS \
        --map-by rankfile:file=$RANKFILE \
-       --bind-to core \
        --display-map \
        --report-bindings \
        $EXEC $ARGS > $OUTPUT
