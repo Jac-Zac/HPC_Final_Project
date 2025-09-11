@@ -36,3 +36,7 @@ This effect can dominate: smaller halo -> shorter wait time -> measured comm tim
 ### Strong scaling is done with 50k x 50k for 1000 iteration
 
 ### Weak scaling is done with 25k \* 25k for 1000 iteration as a starting point -> 35350 \* 35350 -> 50k \* 50k -> 70711 \* 70711 ->
+
+# NOTE: no temporal store
+
+Nice trick gives ~33% improvement in performance

@@ -56,7 +56,6 @@ int main(int argc, char **argv) {
     return SUCCESS;
   }
 
-  // Allocate timing arrays for logging
   double *comp_times = (double *)malloc(num_iterations * sizeof(double));
   double *comm_times = (double *)malloc(num_iterations * sizeof(double));
   if (comp_times == NULL || comm_times == NULL) {
@@ -69,7 +68,6 @@ int main(int argc, char **argv) {
 
   // Synchronize all ranks before starting the timer for better reproducibility
   MPI_Barrier(my_COMM_WORLD);
-
   double total_start_time = MPI_Wtime();
 
   int current = OLD;
@@ -78,7 +76,6 @@ int main(int argc, char **argv) {
 
     MPI_Request requests[8];
 
-    // new energy from sources
     inject_energy(periodic, num_sources_local, sources_local, energy_per_source,
                   &planes[current], mpi_tasks_grid);
 
@@ -93,7 +90,6 @@ int main(int argc, char **argv) {
     error_code_t ret = exchange_halos(buffers, planes[current].size, neighbours,
                                       &my_COMM_WORLD, requests);
 
-    // Return if unsuccessful
     if (ret != MPI_SUCCESS) {
       fprintf(stderr, "Rank %d: MPI halo exchange failed with error %d\n", rank,
               ret);
@@ -105,10 +101,7 @@ int main(int argc, char **argv) {
 
     /* --- COMPUTATION PHASE 1 --- */
     t_comp_start = MPI_Wtime();
-
-    // update inner part of the grid
     update_plane_inner(&planes[current], &planes[!current]);
-
     comp_times[iter] = MPI_Wtime() - t_comp_start;
     /* ------------------------- */
 
@@ -120,8 +113,6 @@ int main(int argc, char **argv) {
     // until I compute all of them. But I don't think this is the biggest
     // performance killer currently thus I will not implement it
     MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
-
-    // Copy the received halos data
     copy_received_halos(buffers, &planes[current], neighbours);
 
     comm_times[iter] += MPI_Wtime() - t_comm_start;
@@ -134,7 +125,6 @@ int main(int argc, char **argv) {
     comp_times[iter] += MPI_Wtime() - t_comp_start;
     /* ------------------------- */
 
-    // output if needed
     if (output_energy_stats) {
       output_energy_stat(iter, &planes[!current],
                          (iter + 1) * num_sources * energy_per_source, rank,
@@ -236,13 +226,11 @@ error_code_t initialize(
     int *num_local_sources, vec2_t **local_sources,
     double *energy_per_source, // how much heat per source
     plane_t *planes, buffers_t *buffers) {
+
   int halt = 0;
   int ret;
   int verbose = 0;
   int testing = 0;
-
-  // ··································································
-  // set fixed values for testing
 
   (*plane_size)[_x_] = 10000;
   (*plane_size)[_y_] = 10000;
@@ -255,7 +243,6 @@ error_code_t initialize(
   *output_energy_stat = 0;
 
   if (planes == NULL) {
-    // Just on prints the error
     if (Me == 0)
       fprintf(stderr, "Rank %d: ERROR - planes pointer is NULL\n", Me);
     return ERROR_NULL_POINTER;
@@ -265,7 +252,6 @@ error_code_t initialize(
   planes[OLD].size[0] = planes[OLD].size[1] = 0;
   planes[NEW].size[0] = planes[NEW].size[1] = 0;
 
-  // Set the neighbours to MPI null as default
   for (int i = 0; i < 4; i++)
     neighbours[i] = MPI_PROC_NULL;
 
@@ -504,7 +490,6 @@ error_code_t initialize(
   }
 
   // ··································································
-  // heat sources are local to the specific patch (thus to the specific rank)
   ret = initialize_sources(Me, num_tasks, Comm, my_size, *num_sources,
                            num_local_sources, local_sources, testing);
   if (ret != 0) {
@@ -619,7 +604,6 @@ int memory_allocate(buffers_t *buffers_ptr, plane_t *planes_ptr) {
     return ERROR_NULL_POINTER;
 
   // ··················································
-  // allocate memory for data
   // we allocate the space needed for the plane plus a contour frame
   // that will contains data form neighbouring MPI tasks
   unsigned int frame_size =
@@ -705,16 +689,12 @@ error_code_t memory_release(plane_t *planes, buffers_t *buffer_ptr) {
   }
 
   // Free only EAST and WEST buffers (NORTH/SOUTH point to plane data)
-  // RECV buffers
   if (buffer_ptr[RECV][WEST] != NULL) {
     free(buffer_ptr[RECV][WEST]);
   }
-
   if (buffer_ptr[RECV][EAST] != NULL) {
     free(buffer_ptr[RECV][EAST]);
   }
-
-  // SEND buffers
   if (buffer_ptr[SEND][WEST] != NULL) {
     free(buffer_ptr[SEND][WEST]);
   }
@@ -731,8 +711,6 @@ error_code_t output_energy_stat(int step, plane_t *plane_ptr, double budget,
   double tot_system_energy = 0;
   // Every rank compute its total energy for the patch using parallel reduction
   get_total_energy(plane_ptr, &system_energy);
-
-  // Reduce by patch to get the final energy
   MPI_Reduce(&system_energy, &tot_system_energy, 1, MPI_DOUBLE, MPI_SUM, 0,
              *Comm);
 

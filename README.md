@@ -20,15 +20,15 @@ A 2D heat-stencil simulation with serial and parallel (MPI+OpenMP) implementatio
 .
 ├── include/               # Header files
 ├── src/                   # Source code (stencil_serial.c, stencil_parallel.c)
-├── tests/                 # Python tests and reference implementation
-│   ├── test_stencil.py    # Comprehensive test suite
-│   └── stencil_reference.py # Python reference implementation
-├── python_plotting/       # Performance analysis and plotting scripts
-│   ├── generate_visualizations.py # Visualization generation script
-│   ├── plot_strong_scaling.py     # Main plotting script
-│   └── stencil_utils.py           # Shared utilities for grid assembly & viz
+├── python_src/            # Python utilities
+│   ├── testing/           # Test suite and reference implementation
+│   │   ├── test_stencil.py    # Comprehensive test suite
+│   │   └── stencil_reference.py # Python reference implementation
+│   ├── plotting/          # Performance analysis and visualization scripts
+│   │   ├── generate_visualizations.py # Visualization generation script
+│   │   ├── plot_scaling.py            # Main plotting script
+│   │   └── stencil_utils.py           # Shared utilities for grid assembly & viz
 ├── slurm_files/           # HPC job scripts for Cineca and Orfeo
-├── results/               # Output results directory
 ├── Makefile               # Build system
 └── README.md
 ```
@@ -60,6 +60,7 @@ pip install numpy pytest matplotlib pandas
 - pytest: Testing framework
 - matplotlib: Plotting and visualization
 - pandas: Data manipulation and CSV handling
+- contourpy, cycler, fonttools, kiwisolver, packaging, pillow, pluggy, Pygments, pyparsing, python-dateutil, pytz, six, tzdata: Additional dependencies
 
 **Optional (for development):**
 
@@ -77,6 +78,9 @@ make MODE=serial
 
 # Clean
 make clean
+
+# Run simulation and generate visualizations
+make visualize
 ```
 
 **Note:** The serial version uses fixed parameters and does not support command line options.
@@ -144,9 +148,10 @@ Options:
 Use the provided SLURM scripts in `slurm_files/cineca/`:
 
 ```bash
-# Edit go_dcgp or go_booster with your parameters
-sbatch go_dcgp  # For DCGP partition
-sbatch go_booster  # For Booster partition
+# Available scripts: mpi_strong_scaling, openmp_scaling, perf_test
+sbatch mpi_strong_scaling  # MPI strong scaling test
+sbatch openmp_scaling      # OpenMP scaling test
+sbatch perf_test          # Performance test
 ```
 
 Key settings:
@@ -160,8 +165,9 @@ Key settings:
 Use scripts in `slurm_files/orfeo/`:
 
 ```bash
-sbatch mpi_scaling  # MPI scaling test with NUMA awareness
-sbatch openmp_scaling  # OpenMP scaling test
+sbatch mpi_strong_scaling  # MPI strong scaling test with NUMA awareness
+sbatch openmp_scaling      # OpenMP scaling test
+sbatch single_testing      # Single node testing
 ```
 
 Features NUMA-aware rankfile generation for optimal performance.
@@ -182,7 +188,7 @@ Features NUMA-aware rankfile generation for optimal performance.
 make test
 
 # Python tests only (activate virtual environment first)
-source .env/bin/activate && pytest -v tests/
+source .env/bin/activate && pytest -v python_src/testing/
 
 # Manual testing
 ./stencil_serial          # Serial version
@@ -215,10 +221,6 @@ The testing framework includes:
 - **Energy conservation**: Validates that total energy is conserved across iterations
 - **Parallel correctness**: Ensures MPI decomposition produces correct results
 
-### Test Output Files
-
-The test generates several types of output files:
-
 ## Performance Analysis & Plotting
 
 ### Scaling Analysis Plots
@@ -228,29 +230,29 @@ Use the comprehensive plotting script for performance analysis:
 #### Basic Usage
 
 ```bash
-cd python_plotting/
+cd python_src/plotting/
 
 # Plot with data files (provide your own CSV files)
-python plot_strong_scaling.py data_file.csv
+python plot_scaling.py data_file.csv
 
 # Save plots without displaying
-python plot_strong_scaling.py data_file.csv --no-show --save-dir results/
+python plot_scaling.py data_file.csv --no-show --save-dir results/
 ```
 
 #### Advanced Options
 
 ```bash
 # Plot only MPI scaling
-python plot_strong_scaling.py --mpi-only data.csv
+python plot_scaling.py --mpi-only data.csv
 
 # Plot only OpenMP scaling
-python plot_strong_scaling.py --openmp-only data.csv
+python plot_scaling.py --openmp-only data.csv
 
 # Custom save directory
-python plot_strong_scaling.py data.csv --save-dir my_plots/
+python plot_scaling.py data.csv --save-dir my_plots/
 
 # Headless mode (no display, just save)
-python plot_strong_scaling.py data.csv --no-show --save-dir plots/
+python plot_scaling.py data.csv --no-show --save-dir plots/
 ```
 
 ### Generated Plots
@@ -271,7 +273,7 @@ The plotting utilities include visualization capabilities for analyzing simulati
 ### Prerequisites
 
 ```bash
-make visualization
+make visualize
 ```
 
 ### Visualization Features

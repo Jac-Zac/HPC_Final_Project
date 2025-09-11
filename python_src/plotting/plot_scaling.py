@@ -11,6 +11,7 @@ Updates:
 - Speedup plot is log-log by default.
 - Each point is annotated with its value for better readability with smart placement.
 - Skip communication breakdown plot for OpenMP.
+- In time breakdown plots, communication values are annotated above bars and computation values just below their bar tops.
 """
 
 import argparse
@@ -198,10 +199,10 @@ def plot_time_breakdown(data_dict, resource_col, title_prefix, save_dir, show):
             continue
 
         offset = (i - n_datasets / 2 + 0.5) * bar_width
-        bars1 = ax.bar(
+        bars_comp = ax.bar(
             x + offset, df["MaxCompTime"], bar_width, label=f"Computation ({label})"
         )
-        bars2 = ax.bar(
+        bars_comm = ax.bar(
             x + offset,
             df["MaxCommTime"],
             bar_width,
@@ -209,15 +210,32 @@ def plot_time_breakdown(data_dict, resource_col, title_prefix, save_dir, show):
             label=f"Communication ({label})",
         )
 
-        for b in bars1 + bars2:
+        # Annotate communication above total bar
+        for b_comp, b_comm in zip(bars_comp, bars_comm):
+            total_height = b_comp.get_height() + b_comm.get_height()
+            comm_height = b_comm.get_height()
+            if comm_height > 0:
+                ax.annotate(
+                    f"{comm_height:.2f}",
+                    xy=(b_comm.get_x() + b_comm.get_width() / 2, total_height),
+                    xytext=(0, 3),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    color="blue",
+                )
+
+        # Annotate computation just below its top
+        for b in bars_comp:
             height = b.get_height()
             ax.annotate(
                 f"{height:.2f}",
-                xy=(b.get_x() + b.get_width() / 2, b.get_y() + height),
-                xytext=(0, 3),
+                xy=(b.get_x() + b.get_width() / 2, height),
+                xytext=(0, -10),
                 textcoords="offset points",
                 ha="center",
-                va="bottom",
+                va="top",
                 fontsize=8,
             )
 

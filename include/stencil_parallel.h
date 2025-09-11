@@ -128,13 +128,8 @@ void fill_send_buffers(buffers_t buffers[2], plane_t *plane) {
   const uint size_y = plane->size[_y_];
   const uint stride = size_x + 2;
 
-  // NOTE: For north and south we can copy continues memory directly starting
-  // from the correct location
-
-  // Instead of memcpy:
   buffers[SEND][NORTH] = &plane->data[1 * stride + 1];
   buffers[SEND][SOUTH] = &plane->data[size_y * stride + 1];
-
   buffers[RECV][NORTH] = &plane->data[0 * stride + 1];
   buffers[RECV][SOUTH] = &plane->data[(size_y + 1) * stride + 1];
 
@@ -151,6 +146,8 @@ error_code_t exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
                             MPI_Comm *Comm, MPI_Request requests[8]) {
   int rc = MPI_SUCCESS; // Accumulate MPI errors with OR to check all at once
 
+  // NOTE: count = 1 because we send the entire pre-committed datatype
+  // NOTE: MPI automatically handles sends/receives to MPI_PROC_NULL as no-ops
   // NOTE: Keep the receive first send after order we would use for blocking
   // version which avoid deadlocks
 
@@ -176,7 +173,6 @@ error_code_t exchange_halos(buffers_t buffers[2], vec2_t size, int *neighbours,
   rc |= MPI_Isend(buffers[SEND][WEST], size[_y_], MPI_DOUBLE, neighbours[WEST],
                   WEST, *Comm, &requests[7]);
 
-  // Single check at the end
   if (rc != MPI_SUCCESS) {
     return ERROR_MPI_FAILURE;
   }
@@ -205,6 +201,7 @@ void copy_received_halos(buffers_t buffers[2], plane_t *plane,
   }
 }
 
+#ifndef __AVX__
 inline void update_plane_inner(const plane_t *old_plane, plane_t *new_plane) {
   // 5-point stencil coefficients: center + 4 neighbors (N,S,E,W)
   const uint f_xsize = old_plane->size[_x_] + 2;
@@ -227,12 +224,6 @@ inline void update_plane_inner(const plane_t *old_plane, plane_t *new_plane) {
     // No conditional branches to maintain SIMD efficiency
 #pragma omp simd
     for (uint i = 2; i <= x_size - 1; ++i) {
-
-      // NOTE: (i-1,j), (i+1,j), (i,j-1) and (i,j+1) always exist even
-      //       if this patch is at some border without periodic conditions;
-      //       in that case it is assumed that the +-1 points are outside the
-      //       plate and always have a value of 0, i.e. they are an
-      //       "infinite sink" of heat
       const double center = row_center[i];
       const double left = row_center[i - 1];
       const double right = row_center[i + 1];
@@ -244,6 +235,70 @@ inline void update_plane_inner(const plane_t *old_plane, plane_t *new_plane) {
     }
   }
 }
+#else
+
+#include <immintrin.h>
+#include <stdint.h>
+inline void update_plane_inner(const plane_t *old_plane, plane_t *new_plane) {
+  const uint f_xsize = old_plane->size[_x_] + 2;
+  const uint x_size = old_plane->size[_x_];
+  const uint y_size = old_plane->size[_y_];
+
+  double *restrict new_p = new_plane->data;
+  const double *restrict old_p = old_plane->data;
+
+#pragma omp parallel for schedule(static)
+  for (uint j = 2; j <= y_size - 1; ++j) {
+    const double *row_above = old_p + (j - 1) * f_xsize;
+    const double *row_center = old_p + j * f_xsize;
+    const double *row_below = old_p + (j + 1) * f_xsize;
+    double *row_new = new_p + j * f_xsize;
+
+    uint i = 2;
+
+    // Peel loop until row_new[i] is 32-byte aligned
+    for (; ((uintptr_t)&row_new[i] % 32 != 0) && (i <= x_size - 1); ++i) {
+      row_new[i] = row_center[i] * STENCIL_CENTER_COEFF +
+                   (row_center[i - 1] + row_center[i + 1] + row_above[i] +
+                    row_below[i]) *
+                       STENCIL_NEIGHBOR_COEFF;
+    }
+
+    // Main SIMD loop with streaming stores
+    for (; i + 3 <= x_size - 1; i += 4) {
+      __m256d center = _mm256_loadu_pd(&row_center[i]);
+      __m256d left = _mm256_loadu_pd(&row_center[i - 1]);
+      __m256d right = _mm256_loadu_pd(&row_center[i + 1]);
+      __m256d up = _mm256_loadu_pd(&row_above[i]);
+      __m256d down = _mm256_loadu_pd(&row_below[i]);
+
+      // NOTE: perhaps I can avoid _mm256_set1_pd every time and do it before
+      __m256d res = _mm256_fmadd_pd(
+          center, _mm256_set1_pd(STENCIL_CENTER_COEFF),
+          _mm256_mul_pd(_mm256_add_pd(_mm256_add_pd(left, right),
+                                      _mm256_add_pd(up, down)),
+                        _mm256_set1_pd(STENCIL_NEIGHBOR_COEFF)));
+
+#if USE_NT_STORE
+      _mm256_stream_pd(&row_new[i], res);
+#else
+      _mm256_storeu_pd(&row_new[i], res);
+#endif
+    }
+
+    // Handle remainder elements
+    for (; i <= x_size - 1; ++i) {
+      row_new[i] = row_center[i] * STENCIL_CENTER_COEFF +
+                   (row_center[i - 1] + row_center[i + 1] + row_above[i] +
+                    row_below[i]) *
+                       STENCIL_NEIGHBOR_COEFF;
+    }
+  }
+
+  // Optional: serialize NT stores before using new_p
+  _mm_sfence();
+}
+#endif
 
 inline void update_plane_borders(const int periodic,
                                  const vec2_t mpi_tasks_grid,
@@ -253,7 +308,6 @@ inline void update_plane_borders(const int periodic,
   const uint x_size = old_plane->size[_x_];
   const uint y_size = old_plane->size[_y_];
 
-  // define macro to simplify code
 #define IDX(i, j) ((j) * f_xsize + (i))
 
   double *restrict new_p = new_plane->data;
@@ -342,7 +396,6 @@ inline void get_total_energy(plane_t *plane, double *energy) {
 #pragma omp parallel for reduction(+ : tot_energy)
   for (uint j = 1; j <= y_size; ++j) {
     const double *row = data + j * f_size;
-    // Automatically hints the compiler to do simd reduction here
 #pragma omp simd reduction(+ : tot_energy)
     for (uint i = 1; i <= x_size; ++i)
       tot_energy += row[i];
