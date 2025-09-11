@@ -32,11 +32,6 @@ do
     export OMP_PROC_BIND=spread
     export OMP_DISPLAY_AFFINITY=TRUE
 
-    # Log CPU layout only once
-    if [ "$THREADS" -eq 1 ]; then
-        lscpu > cpu_layout.log
-    fi
-
     OUTPUT=$(mktemp)
 
     # Avoid mpi binding
